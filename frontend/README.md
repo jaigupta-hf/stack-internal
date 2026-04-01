@@ -1,16 +1,68 @@
-# React + Vite
+# Frontend Developer Guide
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This frontend is a React + Vite app for Stack Internal.
+Current implementation focuses on Google sign-in and authenticated session handling against the Django backend.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19
+- Vite 8
+- Tailwind CSS 4
+- Axios
+- @react-oauth/google
 
-## React Compiler
+## Project Structure
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+frontend/
+- src/
+	- App.jsx                   Session bootstrap and authenticated shell
+	- pages/LoginPage.jsx       Google OAuth login screen
+	- services/
+		- config.js               Axios instance, token storage, interceptors
+		- login-api.js            Auth service methods
+		- api.js                  Barrel exports for service imports
+- .env                        Frontend runtime env vars
+- package.json
 
-## Expanding the ESLint configuration
+## Environment Variables
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Set these in frontend/.env:
+
+- VITE_GOOGLE_CLIENT_ID
+- VITE_API_URL (example: http://localhost:3000)
+
+## Local Development
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Useful commands:
+
+- npm run build
+- npm run preview
+- npm run lint
+
+## Authentication Flow
+
+1. LoginPage receives Google credential token.
+2. authService.googleLogin posts token to /users/auth/google/.
+3. Backend returns user + tokens.
+4. tokenService stores access/refresh tokens in localStorage.
+5. api interceptor adds Authorization header to subsequent requests.
+6. App checks auth/me on load to restore session state.
+
+## API Access Pattern
+
+- Import service helpers from src/services/api.js.
+- Use authService for login/session/logout operations.
+- Use api for generic authenticated calls.
+- Use asList when endpoint payload may vary between array and object wrappers.
+
+## Troubleshooting
+
+- Login popup or One Tap issues: verify VITE_GOOGLE_CLIENT_ID and authorized origins in Google Cloud.
+- 401 responses: clear localStorage tokens and log in again.
+- CORS errors: ensure backend CORS_ALLOWED_ORIGINS includes current frontend origin.
