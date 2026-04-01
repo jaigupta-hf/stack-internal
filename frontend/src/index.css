@@ -1,11 +1,18 @@
 @import "tailwindcss";
 
-html,
-body,
-#root {
-  height: 100%;
+button,
+a,
+summary,
+[role='button'],
+input[type='button'],
+input[type='submit'],
+input[type='reset'] {
+	cursor: pointer;
 }
 
-body {
-  margin: 0;
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+	cursor: not-allowed;
 }
