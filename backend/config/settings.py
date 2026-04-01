@@ -29,7 +29,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
 
-    'apps.users.apps.UsersConfig'
+    'users'
 ]
 
 MIDDLEWARE = [
@@ -105,6 +105,9 @@ CORS_ALLOW_CREDENTIALS = True
 
 
 REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'users.utils.auth.JWTAppUserAuthentication',
+    ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
     ],

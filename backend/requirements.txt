@@ -3,3 +3,6 @@ djangorestframework
 django-cors-headers
 python-dotenv
 psycopg2-binary==2.9.11
+google-auth
+PyJWT
+requests
