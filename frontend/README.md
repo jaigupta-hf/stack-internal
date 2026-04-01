@@ -1,37 +1,40 @@
-# Frontend Developer Guide
+# Frontend Overview
 
-This frontend is a React + Vite app for Stack Internal.
-Current implementation focuses on Google sign-in and authenticated session handling against the Django backend.
+This frontend is a React app that drives the Stack Internal user experience.
+At a high level, it handles:
 
-## Tech Stack
+- Sign-in with Google
+- Session restore on refresh
+- Team listing and team creation after login
 
-- React 19
-- Vite 8
-- Tailwind CSS 4
-- Axios
-- @react-oauth/google
+## UI Flow
 
-## Project Structure
+1. App starts and checks whether a session token exists.
+2. If no valid session is found, user sees LoginPage.
+3. After successful login, user is taken to TeamsPage.
+4. TeamsPage allows listing existing teams and creating new teams.
 
-frontend/
-- src/
-	- App.jsx                   Session bootstrap and authenticated shell
-	- pages/LoginPage.jsx       Google OAuth login screen
-	- services/
-		- config.js               Axios instance, token storage, interceptors
-		- login-api.js            Auth service methods
-		- api.js                  Barrel exports for service imports
-- .env                        Frontend runtime env vars
-- package.json
+## Architecture At A Glance
 
-## Environment Variables
+- src/App.jsx
+	- Entry flow controller for auth check and page switching
+- src/pages/LoginPage.jsx
+	- Google OAuth entry point
+- src/pages/TeamsPage.jsx
+	- Authenticated workspace for teams
+- src/services/
+	- config.js: shared axios client, token storage, interceptors
+	- login-api.js: user auth service calls
+	- teams-api.js: teams service calls
+	- api.js: single import surface for all service modules
 
-Set these in frontend/.env:
+## Integration With Backend
 
-- VITE_GOOGLE_CLIENT_ID
-- VITE_API_URL (example: http://localhost:3000)
+- Frontend calls backend via VITE_API_URL + /api base path.
+- Bearer token is attached automatically by axios interceptor.
+- 401 responses clear token state and force a return to login.
 
-## Local Development
+## Running Locally
 
 ```bash
 cd frontend
@@ -39,30 +42,13 @@ npm install
 npm run dev
 ```
 
-Useful commands:
+Use frontend/.env to set:
 
-- npm run build
-- npm run preview
-- npm run lint
+- VITE_GOOGLE_CLIENT_ID
+- VITE_API_URL
 
-## Authentication Flow
+## Developer Guidance
 
-1. LoginPage receives Google credential token.
-2. authService.googleLogin posts token to /users/auth/google/.
-3. Backend returns user + tokens.
-4. tokenService stores access/refresh tokens in localStorage.
-5. api interceptor adds Authorization header to subsequent requests.
-6. App checks auth/me on load to restore session state.
-
-## API Access Pattern
-
-- Import service helpers from src/services/api.js.
-- Use authService for login/session/logout operations.
-- Use api for generic authenticated calls.
-- Use asList when endpoint payload may vary between array and object wrappers.
-
-## Troubleshooting
-
-- Login popup or One Tap issues: verify VITE_GOOGLE_CLIENT_ID and authorized origins in Google Cloud.
-- 401 responses: clear localStorage tokens and log in again.
-- CORS errors: ensure backend CORS_ALLOWED_ORIGINS includes current frontend origin.
+- Keep page-level logic in pages and API logic in services.
+- Reuse src/services/api.js exports instead of importing deep service files across the app.
+- When adding new protected screens, follow the same auth-guard pattern used in App.jsx.
