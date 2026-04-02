@@ -1,56 +1,925 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import './App.css';
 
-import LoginPage from './pages/LoginPage';
+import Login from './pages/LoginPage';
 import TeamsPage from './pages/TeamsPage';
-import { authService } from './services/api';
+import ProfilePage from './pages/ProfilePage';
+
+import HomeTab from './pages/navigationTabs/HomeTab';
+import QuestionTab from './pages/navigationTabs/QuestionTab';
+import ArticlesTab from './pages/navigationTabs/ArticlesTab';
+import CollectionsTab from './pages/navigationTabs/CollectionsTab';
+import ForYouTab from './pages/navigationTabs/ForYouTab';
+import BookmarksTab from './pages/navigationTabs/BookmarksTab';
+import TagsTab from './pages/navigationTabs/TagsTab';
+import UsersTab from './pages/navigationTabs/UsersTab';
+
+import { authService, teamService } from './services/api';
+
+const TABS = ['Home', 'Questions', 'Articles', 'Collections', 'For You', 'Bookmarks', 'Tags', 'Users', 'Admin Settings'];
+const TAB_SLUGS = {
+  Home: 'home',
+  Questions: 'questions',
+  Articles: 'articles',
+  Collections: 'collections',
+  'For You': 'for-you',
+  Bookmarks: 'bookmarks',
+  Tags: 'tags',
+  Users: 'users',
+  'Admin Settings': 'admin-settings',
+};
+
+const slugToTab = Object.entries(TAB_SLUGS).reduce((acc, [tab, slug]) => {
+  acc[slug] = tab;
+  return acc;
+}, {});
+
+const getRouteFromPathname = (pathname) => {
+  const segments = pathname.split('/').filter(Boolean);
+  const companySlug = segments[0] || '';
+  const tabSlug = segments[1] || '';
+  return { companySlug, tabSlug };
+};
+
+const buildTeamTabPath = (teamSlug, tab) => {
+  const tabSlug = TAB_SLUGS[tab] || TAB_SLUGS.Home;
+  return `/${teamSlug}/${tabSlug}`;
+};
+
+const getProfileUserIdFromSearch = (search) => {
+  const value = new URLSearchParams(search).get('profile');
+  if (!value) {
+    return null;
+  }
+
+  if (value === 'me') {
+    return 'me';
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const TabIcon = ({ tab }) => {
+  if (tab === 'Home') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <path d="M3 10.5 12 3l9 7.5" />
+        <path d="M5.5 9.5V21h13V9.5" />
+      </svg>
+    );
+  }
+  if (tab === 'Questions') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9a2.5 2.5 0 1 1 4.2 1.8c-.9.8-1.7 1.2-1.7 2.2" />
+        <circle cx="12" cy="16.8" r=".7" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (tab === 'Articles') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+        <path d="M8 9h8M8 12h8M8 15h5" />
+      </svg>
+    );
+  }
+  if (tab === 'Collections') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <rect x="3.5" y="6" width="8" height="12" rx="1.5" />
+        <rect x="12.5" y="6" width="8" height="12" rx="1.5" />
+      </svg>
+    );
+  }
+  if (tab === 'For You') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <path d="m12 20-6.6-6.2a4.2 4.2 0 1 1 5.9-6l.7.8.7-.8a4.2 4.2 0 1 1 5.9 6Z" />
+      </svg>
+    );
+  }
+  if (tab === 'Bookmarks') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <path d="M6 4.5h12v15L12 16l-6 3.5z" />
+      </svg>
+    );
+  }
+  if (tab === 'Tags') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <path d="M20 12.4 11.6 4H5v6.6l8.4 8.4a1.8 1.8 0 0 0 2.6 0l4-4a1.8 1.8 0 0 0 0-2.6Z" />
+        <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+  if (tab === 'Users') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+        <circle cx="12" cy="8" r="3" />
+        <path d="M5 19a7 7 0 0 1 14 0" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+      <path d="M12 3v18M3 12h18" />
+    </svg>
+  );
+};
 
 function App() {
   const [user, setUser] = useState(null);
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [activeTeam, setActiveTeam] = useState(null);
+  const [activeTab, setActiveTab] = useState('Home');
+  const [isTeamMember, setIsTeamMember] = useState(true);
+  const [isTeamAdmin, setIsTeamAdmin] = useState(false);
+  const [joiningTeam, setJoiningTeam] = useState(false);
+  const [joinTeamError, setJoinTeamError] = useState('');
+  const [joinedTeams, setJoinedTeams] = useState([]);
+  const [loadingJoinedTeams, setLoadingJoinedTeams] = useState(false);
+  const [teamSwitcherOpen, setTeamSwitcherOpen] = useState(false);
+  const [showProfilePage, setShowProfilePage] = useState(false);
+  const [profileUserId, setProfileUserId] = useState(null);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [globalSearchResults, setGlobalSearchResults] = useState([]);
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [globalSearchError, setGlobalSearchError] = useState('');
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [forYouUnreadCount, setForYouUnreadCount] = useState(0);
+  const [currentTeamReputation, setCurrentTeamReputation] = useState(null);
+  const teamSwitcherRef = useRef(null);
+  const globalSearchRef = useRef(null);
+
+  const pushTeamTabUrl = (team, tab) => {
+    if (!team?.url_endpoint) {
+      return;
+    }
+
+    const nextPath = buildTeamTabPath(team.url_endpoint, tab);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+  };
+
+  const replaceTeamsUrl = () => {
+    if (window.location.pathname !== '/') {
+      window.history.replaceState({}, '', '/');
+    }
+  };
+
+  const setProfileInUrl = (profileValue, replace = false) => {
+    const url = new URL(window.location.href);
+    if (profileValue === null || profileValue === undefined || profileValue === '') {
+      url.searchParams.delete('profile');
+    } else {
+      url.searchParams.set('profile', String(profileValue));
+    }
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    if (replace) {
+      window.history.replaceState(window.history.state, '', nextUrl);
+      return;
+    }
+
+    window.history.pushState(window.history.state, '', nextUrl);
+  };
+
+  const hydrateTeamFromRoute = async (companySlug, tabSlug) => {
+    const data = await teamService.getTeamBySlug(companySlug);
+    const teamFromPath = {
+      id: data.id,
+      name: data.name,
+      url_endpoint: data.url_endpoint,
+    };
+
+    const mappedTab = slugToTab[tabSlug] || 'Home';
+    const nextTab = data.is_member && (data.is_admin || mappedTab !== 'Admin Settings') ? mappedTab : 'Home';
+
+    setActiveTeam(teamFromPath);
+    setIsTeamMember(data.is_member);
+    setIsTeamAdmin(data.is_admin);
+    setJoinTeamError('');
+    setActiveTab(nextTab);
+
+    const canonicalPath = buildTeamTabPath(teamFromPath.url_endpoint, nextTab);
+    if (window.location.pathname !== canonicalPath) {
+      window.history.replaceState({}, '', canonicalPath);
+    }
+  };
 
   useEffect(() => {
-    const loadCurrentUser = async () => {
-      if (!authService.isAuthenticated()) {
-        setCheckingAuth(false);
+    // Check if user is already logged in (has valid JWT token)
+    const checkAuth = async () => {
+      if (authService.isAuthenticated()) {
+        try {
+          const userData = await authService.getCurrentUser();
+          setUser(userData);
+        } catch (err) {
+          console.log('Session expired or invalid token');
+          // Token is invalid, it will be cleared by the interceptor
+        }
+      }
+      setLoading(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    const loadJoinedTeams = async () => {
+      if (!user) {
+        setJoinedTeams([]);
+        return;
+      }
+
+      setLoadingJoinedTeams(true);
+      try {
+        const teams = await teamService.listTeams();
+        const list = teams || [];
+        const hasIsMemberFlag = list.some((team) => Object.prototype.hasOwnProperty.call(team, 'is_member'));
+        setJoinedTeams(hasIsMemberFlag ? list.filter((team) => team.is_member) : list);
+      } catch {
+        setJoinedTeams((prev) => prev);
+      } finally {
+        setLoadingJoinedTeams(false);
+      }
+    };
+
+    loadJoinedTeams();
+  }, [user, activeTeam?.id]);
+
+  useEffect(() => {
+    const loadCurrentTeamReputation = async () => {
+      if (!user || !activeTeam?.id || !isTeamMember) {
+        setCurrentTeamReputation(null);
         return;
       }
 
       try {
-        const currentUser = await authService.getCurrentUser();
-        setUser(currentUser);
+        const profile = await authService.getProfile(activeTeam.id);
+        setCurrentTeamReputation(Number(profile?.reputation ?? null));
       } catch {
-        setUser(null);
-      } finally {
-        setCheckingAuth(false);
+        setCurrentTeamReputation(null);
       }
     };
 
-    loadCurrentUser();
-  }, []);
+    loadCurrentTeamReputation();
+  }, [user?.id, activeTeam?.id, isTeamMember]);
 
-  if (checkingAuth) {
+  useEffect(() => {
+    if (!teamSwitcherOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (!teamSwitcherRef.current?.contains(event.target)) {
+        setTeamSwitcherOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [teamSwitcherOpen]);
+
+  useEffect(() => {
+    if (!globalSearchOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event) => {
+      if (!globalSearchRef.current?.contains(event.target)) {
+        setGlobalSearchOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [globalSearchOpen]);
+
+  useEffect(() => {
+    const query = globalSearchQuery.trim();
+    if (!activeTeam?.id || !query) {
+      setGlobalSearchResults([]);
+      setGlobalSearchLoading(false);
+      setGlobalSearchError('');
+      return;
+    }
+
+    const debounce = setTimeout(async () => {
+      setGlobalSearchLoading(true);
+      setGlobalSearchError('');
+
+      try {
+        const data = await postService.searchGlobalTitles(activeTeam.id, query);
+        setGlobalSearchResults(data || []);
+        setGlobalSearchOpen(true);
+      } catch (err) {
+        setGlobalSearchResults([]);
+        setGlobalSearchError(err.response?.data?.error || 'Failed to search.');
+      } finally {
+        setGlobalSearchLoading(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(debounce);
+  }, [activeTeam?.id, globalSearchQuery]);
+
+  useEffect(() => {
+    const loadForYouUnreadCount = async () => {
+      if (!activeTeam?.id || !isTeamMember) {
+        setForYouUnreadCount(0);
+        return;
+      }
+
+      try {
+        const data = await notificationService.list(activeTeam.id);
+        setForYouUnreadCount(Number(data.unread_count || 0));
+      } catch {
+        setForYouUnreadCount(0);
+      }
+    };
+
+    loadForYouUnreadCount();
+  }, [activeTeam?.id, isTeamMember]);
+
+  useEffect(() => {
+    const openTeamFromUrl = async () => {
+      if (!user) {
+        return;
+      }
+
+      const { companySlug, tabSlug } = getRouteFromPathname(window.location.pathname);
+      if (!companySlug) {
+        return;
+      }
+
+      try {
+        await hydrateTeamFromRoute(companySlug, tabSlug);
+        const profileFromUrl = getProfileUserIdFromSearch(window.location.search);
+        if (profileFromUrl === 'me') {
+          setProfileUserId(null);
+          setShowProfilePage(true);
+        } else if (profileFromUrl) {
+          setProfileUserId(profileFromUrl);
+          setShowProfilePage(true);
+        } else {
+          setShowProfilePage(false);
+          setProfileUserId(null);
+        }
+      } catch (_err) {
+        replaceTeamsUrl();
+      }
+    };
+
+    if (!activeTeam) {
+      openTeamFromUrl();
+    }
+  }, [user, activeTeam]);
+
+  useEffect(() => {
+    const onPopState = async () => {
+      if (!user) {
+        return;
+      }
+
+      const { companySlug, tabSlug } = getRouteFromPathname(window.location.pathname);
+      if (!companySlug) {
+        setActiveTeam(null);
+        setActiveTab('Home');
+        setIsTeamMember(true);
+        setIsTeamAdmin(false);
+        setJoinTeamError('');
+        return;
+      }
+
+      if (activeTeam && activeTeam.url_endpoint === companySlug) {
+        const mappedTab = slugToTab[tabSlug] || 'Home';
+        const nextTab = isTeamMember && (isTeamAdmin || mappedTab !== 'Admin Settings') ? mappedTab : 'Home';
+        setActiveTab(nextTab);
+
+        const profileFromUrl = getProfileUserIdFromSearch(window.location.search);
+        if (profileFromUrl === 'me') {
+          setProfileUserId(null);
+          setShowProfilePage(true);
+        } else if (profileFromUrl) {
+          setProfileUserId(profileFromUrl);
+          setShowProfilePage(true);
+        } else {
+          setShowProfilePage(false);
+          setProfileUserId(null);
+        }
+        return;
+      }
+
+      try {
+        await hydrateTeamFromRoute(companySlug, tabSlug);
+
+        const profileFromUrl = getProfileUserIdFromSearch(window.location.search);
+        if (profileFromUrl === 'me') {
+          setProfileUserId(null);
+          setShowProfilePage(true);
+        } else if (profileFromUrl) {
+          setProfileUserId(profileFromUrl);
+          setShowProfilePage(true);
+        } else {
+          setShowProfilePage(false);
+          setProfileUserId(null);
+        }
+      } catch (_err) {
+        replaceTeamsUrl();
+        setActiveTeam(null);
+        setActiveTab('Home');
+        setIsTeamMember(true);
+        setIsTeamAdmin(false);
+        setJoinTeamError('');
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [user, activeTeam, isTeamMember, isTeamAdmin]);
+
+  const handleLoginSuccess = (userData) => {
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    setActiveTeam(null);
+    setActiveTab('Home');
+    setIsTeamMember(true);
+    setIsTeamAdmin(false);
+    setJoinTeamError('');
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    replaceTeamsUrl();
+    setUser(null);
+  };
+
+  const handleTeamOpen = (team) => {
+    setActiveTeam(team);
+    setActiveTab('Home');
+    setIsTeamMember(true);
+    setIsTeamAdmin(Boolean(team.is_admin));
+    setJoinTeamError('');
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setForYouUnreadCount(0);
+    setTeamSwitcherOpen(false);
+    setJoinedTeams((prev) => {
+      if (prev.some((item) => item.id === team.id)) {
+        return prev;
+      }
+      return [...prev, team].sort((a, b) => a.name.localeCompare(b.name));
+    });
+    pushTeamTabUrl(team, 'Home');
+  };
+
+  const handleTabChange = (tab) => {
+    if (!isTeamMember || (tab === 'Admin Settings' && !isTeamAdmin)) {
+      return;
+    }
+
+    setActiveTab(tab);
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    if (activeTeam) {
+      pushTeamTabUrl(activeTeam, tab);
+    }
+  };
+
+  const handleBackToTeams = () => {
+    setActiveTeam(null);
+    setActiveTab('Home');
+    setIsTeamMember(true);
+    setIsTeamAdmin(false);
+    setJoinTeamError('');
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setForYouUnreadCount(0);
+    setTeamSwitcherOpen(false);
+    replaceTeamsUrl();
+  };
+
+  const handleOpenSelfProfile = () => {
+    setProfileUserId(null);
+    setShowProfilePage(true);
+    setProfileInUrl('me');
+  };
+
+  const handleOpenQuestionFromHome = (questionId) => {
+    if (!activeTeam?.url_endpoint || !questionId) return;
+    const nextPath = `/${activeTeam.url_endpoint}/questions?question=${questionId}`;
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setActiveTab('Questions');
+    window.history.pushState({}, '', nextPath);
+  };
+
+  const handleOpenUserProfile = (selectedUserId) => {
+    setProfileUserId(selectedUserId);
+    setShowProfilePage(true);
+    setProfileInUrl(selectedUserId);
+  };
+
+  const handleCloseProfilePage = () => {
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setProfileInUrl(null);
+  };
+
+  const handleSelectGlobalSearchResult = (item) => {
+    if (!activeTeam?.url_endpoint || !item?.id) {
+      return;
+    }
+
+    let nextTab = 'Questions';
+    let nextPath = `/${activeTeam.url_endpoint}/questions?question=${item.id}`;
+
+    if (item.type === 'article') {
+      nextTab = 'Articles';
+      nextPath = `/${activeTeam.url_endpoint}/articles?article=${item.id}`;
+    } else if (item.type === 'collection') {
+      nextTab = 'Collections';
+      nextPath = `/${activeTeam.url_endpoint}/collections?collection=${item.id}`;
+    }
+
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setActiveTab(nextTab);
+    window.history.pushState({}, '', nextPath);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    setGlobalSearchQuery('');
+    setGlobalSearchResults([]);
+    setGlobalSearchError('');
+    setGlobalSearchOpen(false);
+  };
+
+  const handleJoinTeam = async () => {
+    if (!activeTeam) {
+      return;
+    }
+
+    setJoiningTeam(true);
+    setJoinTeamError('');
+
+    try {
+      await teamService.joinTeam(activeTeam.id);
+      setIsTeamMember(true);
+      setIsTeamAdmin(false);
+      setActiveTab('Home');
+      pushTeamTabUrl(activeTeam, 'Home');
+    } catch (err) {
+      setJoinTeamError(err.response?.data?.error || 'Failed to join team.');
+    } finally {
+      setJoiningTeam(false);
+    }
+  };
+
+  const handleOpenNotificationReference = (item) => {
+    if (!activeTeam?.url_endpoint || !item?.post_id) {
+      return;
+    }
+
+    let nextTab = 'Questions';
+    let targetId = item.post_id;
+    let nextPath = `/${activeTeam.url_endpoint}/questions?question=${targetId}`;
+
+    if (item.post_type === 1) {
+      targetId = item.parent_post_id || item.post_id;
+      nextPath = `/${activeTeam.url_endpoint}/questions?question=${targetId}`;
+    } else if ([20, 21, 22, 23].includes(item.post_type)) {
+      nextTab = 'Articles';
+      nextPath = `/${activeTeam.url_endpoint}/articles?article=${targetId}`;
+    }
+
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setActiveTab(nextTab);
+    window.history.pushState({}, '', nextPath);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  const handleOpenBookmarkReference = (item) => {
+    if (!activeTeam?.url_endpoint) {
+      return;
+    }
+
+    let nextTab = 'Collections';
+    let nextPath = `/${activeTeam.url_endpoint}/collections`;
+
+    if (item.post_id) {
+      const postType = Number(item.post_type);
+      if (postType === 0 || postType === 1) {
+        nextTab = 'Questions';
+        const questionId = postType === 1 ? item.parent_post_id || item.post_id : item.post_id;
+        nextPath = `/${activeTeam.url_endpoint}/questions?question=${questionId}`;
+      } else {
+        nextTab = 'Articles';
+        nextPath = `/${activeTeam.url_endpoint}/articles?article=${item.post_id}`;
+      }
+    } else if (item.collection_id) {
+      nextTab = 'Collections';
+      nextPath = `/${activeTeam.url_endpoint}/collections?collection=${item.collection_id}`;
+    }
+
+    setShowProfilePage(false);
+    setProfileUserId(null);
+    setActiveTab(nextTab);
+    window.history.pushState({}, '', nextPath);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
+  if (loading) {
     return (
-      <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-6">
-          <div className="w-full rounded-3xl border border-slate-800 bg-slate-900/70 p-10 text-center shadow-2xl">
-            <p className="text-sm text-slate-300">Checking session...</p>
-          </div>
-        </div>
-      </main>
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-xl text-slate-200">Loading...</div>
+      </div>
     );
   }
 
-  if (!user) {
-    return <LoginPage onLoginSuccess={setUser} />;
-  }
-
   return (
-    <TeamsPage
-      user={user}
-      onLogout={() => setUser(null)}
-      onTeamOpen={() => {}}
-    />
+    <>
+      {user ? (
+        activeTeam ? (
+
+          /* Heading Bar styling */
+          <div className="relative h-screen w-full overflow-hidden bg-[#0b1014] text-slate-100">
+            <div className="relative mx-auto flex h-screen w-full max-w-[92rem] flex-col overflow-hidden px-3 py-2 sm:px-4 lg:px-8">
+              <nav className="relative z-50 mb-3 overflow-visible rounded-3xl border border-white/0 bg-white/5 px-4 py-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:px-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <h1 className="text-2xl font-semibold text-white sm:text-3xl">Stack Internal</h1>
+                      <div className="relative" ref={teamSwitcherRef}>
+                        <button
+                          type="button"
+                          onClick={() => setTeamSwitcherOpen((prev) => !prev)}
+                          className="inline-flex items-center gap-2 rounded-md border border-white/0 bg-white/10 px-4 py-1 text-[0.65rem] tracking-[0.16em] text-slate-200 uppercase transition hover:bg-white/15"
+                        >
+                          <span className="max-w-[220px] truncate">{activeTeam.name}</span>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5" aria-hidden="true">
+                            <path d={teamSwitcherOpen ? 'm6 14 6-6 6 6' : 'm6 10 6 6 6-6'} />
+                          </svg>
+                        </button>
+
+                        {teamSwitcherOpen ? (
+                          <div className="absolute left-0 top-full z-[90] mt-2 w-50 overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-2 shadow-2xl shadow-black/50">
+                          <p className="px-2 pb-1 text-[10px] tracking-[0.10em] text-slate-400 uppercase">Joined teams</p>
+
+                          {loadingJoinedTeams ? <p className="px-2 py-2 text-xs text-slate-400">Loading teams...</p> : null}
+
+                          {!loadingJoinedTeams && joinedTeams.length === 0 ? (
+                            <p className="px-2 py-2 text-xs text-slate-400">No joined teams found.</p>
+                          ) : null}
+
+                          {!loadingJoinedTeams && joinedTeams.length > 0 ? (
+                            <ul className="max-h-56 space-y-1 overflow-y-auto">
+                              {joinedTeams.map((team) => (
+                                <li key={team.id}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTeamOpen(team)}
+                                    className={`w-full rounded-3xl px-3 py-1 text-left text-[0.65rem] tracking-[0.16em] uppercase transition ${
+                                      activeTeam?.id === team.id
+                                        ? 'bg-cyan-500/20 text-cyan-300'
+                                        : 'text-slate-200 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <span className="block truncate">{team.name}</span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+
+                          <div className="mt-1 border-t border-white/10 pt-2">
+                            <button
+                              type="button"
+                              onClick={handleBackToTeams}
+                              className="w-full rounded-3xl px-3 py-1 text-left text-[10px] tracking-[0.12em] text-slate-200 uppercase transition hover:bg-white/10"
+                            >
+                              Go to teams listing
+                            </button>
+                          </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative w-full sm:max-w-xl" ref={globalSearchRef}>
+                    <input
+                      type="text"
+                      value={globalSearchQuery}
+                      onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                      onFocus={() => {
+                        if (globalSearchQuery.trim()) {
+                          setGlobalSearchOpen(true);
+                        }
+                      }}
+                      className="w-full rounded-full border border-white/15 bg-black/20 px-4 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
+                      placeholder="Search questions, articles, collections by title"
+                    />
+
+                    {globalSearchOpen && globalSearchQuery.trim() ? (
+                      <div className="absolute left-0 right-0 top-full z-[95] mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-2 shadow-2xl shadow-black/50">
+                        {globalSearchLoading ? (
+                          <p className="px-2 py-2 text-xs text-slate-400">Searching...</p>
+                        ) : null}
+
+                        {!globalSearchLoading && globalSearchError ? (
+                          <p className="px-2 py-2 text-xs text-rose-300">{globalSearchError}</p>
+                        ) : null}
+
+                        {!globalSearchLoading && !globalSearchError && globalSearchResults.length === 0 ? (
+                          <p className="px-2 py-2 text-xs text-slate-400">No results found.</p>
+                        ) : null}
+
+                        {!globalSearchLoading && !globalSearchError && globalSearchResults.length > 0 ? (
+                          <ul className="max-h-72 space-y-1 overflow-y-auto">
+                            {globalSearchResults.map((item) => (
+                              <li key={`${item.type}-${item.id}`}>
+                                <div className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-white/10">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectGlobalSearchResult(item)}
+                                    className="w-full truncate text-left text-sm text-slate-100"
+                                  >
+                                    {item.title}
+                                  </button>
+                                  <p className="mt-1 text-[11px] text-slate-400">
+                                    {item.type} •{' '}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenProfile(item.user_id || item.user)}
+                                      className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
+                                    >
+                                      {item.user_name}
+                                    </button>
+                                  </p>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleOpenSelfProfile}
+                      className="max-w-[220px] truncate rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+                    >
+                      {user.name}
+                      {typeof currentTeamReputation === 'number' ? ` • ${currentTeamReputation}` : ''}
+                    </button>
+                    <button
+                      onClick={handleLogout}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/0 bg-white/10 text-white transition hover:bg-white/20"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                        <path d="M10 5H5v14h5" />
+                        <path d="M14 17l5-5-5-5" />
+                        <path d="M19 12H7" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </nav>
+
+              <main className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+
+                {/* Sidebar styling and logic for team tabs */}
+                <aside className="overflow-hidden rounded-3xl border border-white/0 bg-white/5 p-3 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
+                  <p className="px-2 pb-3 text-xs tracking-[0.14em] text-slate-400 uppercase">Navigation</p>
+                  <div className="space-y-2">
+                    {TABS.filter((tab) => (tab === 'Admin Settings' ? isTeamAdmin : true)).map((tab) => {
+                      const selected = activeTab === tab;
+                      return (
+                        <div key={tab}>
+                          <button
+                            onClick={() => handleTabChange(tab)}
+                            disabled={!isTeamMember}
+                            className={
+                              selected
+                                ? 'w-full rounded-md bg-cyan-300/15 px-4 py-1.5 text-left text-sm font-semibold text-cyan-100'
+                                : `w-full rounded-md px-4 py-1.5 text-left text-sm font-medium transition ${
+                                    isTeamMember
+                                      ? 'text-slate-200 hover:border-white/25 hover:bg-white/10'
+                                      : 'cursor-not-allowed text-slate-500'
+                                  }`
+                            }
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span className={selected ? 'text-cyan-200' : 'text-slate-400'}>
+                                <TabIcon tab={tab} />
+                              </span>
+                              <span>{tab}</span>
+                              {tab === 'For You' && forYouUnreadCount > 0 ? (
+                                <span className="ml-auto rounded-full border border-cyan-300/0 bg-cyan-300/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-100">
+                                  {forYouUnreadCount}
+                                </span>
+                              ) : null}
+                            </span>
+                          </button>
+                          {tab === 'Home' ? <div className="mt-6 border-t border-white/35" /> : null}
+                          {tab === 'Collections' ? <div className="mt-6 border-t border-white/35" /> : null}
+                          {tab === 'Tags' ? <div className="mt-6 border-t border-white/35" /> : null}
+                          {tab === 'Users' ? <div className="mt-6 border-t border-white/35" /> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </aside>
+
+                {/* Main content area where team tab content is rendered */}
+                <section className="min-h-0 overflow-y-auto rounded-3xl border border-white/0 bg-white/5 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
+                  {showProfilePage ? (
+                    <ProfilePage
+                      team={activeTeam}
+                      profileUserId={profileUserId}
+                      onOpenUserProfile={handleOpenUserProfile}
+                      onClose={handleCloseProfilePage}
+                    />
+                  ) : null}
+
+                  {!showProfilePage ? (
+                  !isTeamMember ? (
+                    <div className="mx-auto mt-10 max-w-xl rounded-3xl border border-white/0 bg-black/20 p-8 text-center">
+                      <p className="text-xs tracking-[0.14em] text-slate-400 uppercase">Team Access</p>
+                      <h2 className="mt-2 text-2xl font-semibold text-white">Join {activeTeam.name}</h2>
+                      <p className="mt-3 text-sm text-slate-300">
+                        You are not a member of this company yet. Join to access questions, tags, users, and other team content.
+                      </p>
+
+                      {joinTeamError ? (
+                        <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
+                          {joinTeamError}
+                        </p>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={handleJoinTeam}
+                        disabled={joiningTeam}
+                        className="mt-6 rounded-full bg-cyan-400 px-6 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {joiningTeam ? 'Joining...' : 'Join Team'}
+                      </button>
+                    </div>
+                  ) : activeTab === 'Home' ? (
+                    <HomeTab team={activeTeam} onQuestionClick={handleOpenQuestionFromHome} onOpenUserProfile={handleOpenUserProfile} />
+                  ) : activeTab === 'Questions' ? (
+                    <QuestionTab team={activeTeam} onOpenUserProfile={handleOpenUserProfile} />
+                  ) : activeTab === 'Articles' ? (
+                    <ArticlesTab team={activeTeam} onOpenUserProfile={handleOpenUserProfile} />
+                  ) : activeTab === 'Collections' ? (
+                    <CollectionsTab team={activeTeam} isTeamAdmin={isTeamAdmin} onOpenUserProfile={handleOpenUserProfile} />
+                  ) : activeTab === 'For You' ? (
+                    <ForYouTab
+                      team={activeTeam}
+                      onOpenReference={handleOpenNotificationReference}
+                      onOpenUserProfile={handleOpenUserProfile}
+                      onUnreadCountChange={setForYouUnreadCount}
+                    />
+                  ) : activeTab === 'Bookmarks' ? (
+                    <BookmarksTab
+                      team={activeTeam}
+                      onOpenReference={handleOpenBookmarkReference}
+                      onOpenUserProfile={handleOpenUserProfile}
+                    />
+                  ) : activeTab === 'Tags' ? (
+                    <TagsTab team={activeTeam} />
+                  ) : activeTab === 'Users' ? (
+                    <UsersTab
+                      team={activeTeam}
+                      canManageUsers={isTeamAdmin}
+                      currentUserId={user?.id}
+                      onOpenUserProfile={handleOpenUserProfile}
+                    />
+                  ) : (
+                    <CollectionsTab />
+                  )
+                  ) : null}
+                </section>
+              </main>
+            </div>
+          </div>
+        ) : (
+          <TeamsPage user={user} onLogout={handleLogout} onTeamOpen={handleTeamOpen} />
+        )
+      ) : (
+        <Login onLoginSuccess={handleLoginSuccess} />
+      )}
+    </>
   );
 }
 
-export default App
+export default App;
