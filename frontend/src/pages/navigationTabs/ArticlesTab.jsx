@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, voteService } from '../../services/api';
 import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import VotePanel from '../../components/VotePanel';
 
 const ARTICLE_TYPE_OPTIONS = [
   { label: 'Knowledge article', value: 22 },
@@ -1617,42 +1618,18 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
             /* Article voting component */ 
             <div className="flex items-start gap-2">
-              <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                <button
-                  type="button"
-                  onClick={handleArticleUpvote}
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                    Number(selectedArticle.current_user_vote || 0) === 1
-                      ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                      : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                  }`}
-                  aria-label="Upvote article"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                    <path d="m6 14 6-6 6 6" />
-                  </svg>
-                </button>
-                <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                  {selectedArticle.vote_count || 0}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleToggleArticleBookmark(selectedArticle.id)}
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                    selectedArticle.is_bookmarked
-                      ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                      : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                  }`}
-                  aria-label="Bookmark article"
-                >
-                  <svg viewBox="0 0 24 24" fill={selectedArticle.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                    <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                  </svg>
-                </button>
-                <span className="min-w-[2ch] text-center text-[11px] font-semibold text-amber-100">
-                  {selectedArticle.bookmarks_count || 0}
-                </span>
-              </div>
+              <VotePanel
+                score={selectedArticle.vote_count}
+                currentVote={selectedArticle.current_user_vote}
+                onUpvote={handleArticleUpvote}
+                upvoteAriaLabel="Upvote article"
+                showBookmark
+                isBookmarked={Boolean(selectedArticle.is_bookmarked)}
+                onToggleBookmark={() => handleToggleArticleBookmark(selectedArticle.id)}
+                bookmarkAriaLabel="Bookmark article"
+                showBookmarkCount
+                bookmarkCount={selectedArticle.bookmarks_count}
+              />
 
               {/* Article body, tags, username */ }
               <div className="min-w-0 flex-1">
@@ -1777,39 +1754,16 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
                         ? 'border-slate-300/25 bg-slate-500/5'
                         : 'border-white/10 bg-black/20'
                     }`}>
-                      <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                        <button
-                          type="button"
-                          onClick={() => handleListArticleUpvote(article.id)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                            Number(article.current_user_vote || 0) === 1
-                              ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                              : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                          }`}
-                          aria-label="Upvote article"
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d="m6 14 6-6 6 6" />
-                          </svg>
-                        </button>
-                        <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                          {article.vote_count || 0}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleArticleBookmark(article.id)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                            article.is_bookmarked
-                              ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                              : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                          }`}
-                          aria-label="Bookmark article"
-                        >
-                          <svg viewBox="0 0 24 24" fill={article.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                          </svg>
-                        </button>
-                      </div>
+                      <VotePanel
+                        score={article.vote_count}
+                        currentVote={article.current_user_vote}
+                        onUpvote={() => handleListArticleUpvote(article.id)}
+                        upvoteAriaLabel="Upvote article"
+                        showBookmark
+                        isBookmarked={Boolean(article.is_bookmarked)}
+                        onToggleBookmark={() => handleToggleArticleBookmark(article.id)}
+                        bookmarkAriaLabel="Bookmark article"
+                      />
 
                       <div className="min-w-0 flex-1 text-left">
                         <div className="flex items-center gap-2">

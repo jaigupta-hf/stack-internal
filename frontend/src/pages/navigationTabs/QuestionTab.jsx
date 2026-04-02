@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, teamService, voteService } from '../../services/api';
 import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import VotePanel from '../../components/VotePanel';
 
 const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata',
@@ -2249,39 +2250,17 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                         ? 'border-slate-300/25 bg-slate-500/5'
                         : 'border-white/10 bg-black/20'
                     }`}>
-                      <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                        <button
-                          type="button"
-                          onClick={() => handleListQuestionUpvote(question.id)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                            Number(question.current_user_vote || 0) === 1
-                              ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                              : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/20'
-                          }`}
-                          aria-label="Upvote question"
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d="m6 14 6-6 6 6" />
-                          </svg>
-                        </button>
-                        <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                          {question.vote_count || 0}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleQuestionBookmark(question.id)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                            question.is_bookmarked
-                              ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                              : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/20'
-                          }`}
-                          aria-label="Bookmark question"
-                        >
-                          <svg viewBox="0 0 24 24" fill={question.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                          </svg>
-                        </button>
-                      </div>
+                      <VotePanel
+                        score={question.vote_count}
+                        currentVote={question.current_user_vote}
+                        onUpvote={() => handleListQuestionUpvote(question.id)}
+                        upvoteAriaLabel="Upvote question"
+                        showBookmark
+                        isBookmarked={Boolean(question.is_bookmarked)}
+                        onToggleBookmark={() => handleToggleQuestionBookmark(question.id)}
+                        bookmarkAriaLabel="Bookmark question"
+                        neutralButtonClassName="border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
+                      />
 
                       <div className="min-w-0 flex-1 text-left">
                         <div className="mb-2 flex items-center gap-2">
@@ -3079,56 +3058,20 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
               {/* Question voting component */ }
                 <div className="flex items-start gap-2">
-                  <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                    <button
-                      type="button"
-                      onClick={() => handleQuestionVote(1)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                        Number(selectedQuestion.current_user_vote || 0) === 1
-                          ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                          : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                      }`}
-                      aria-label="Upvote question"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path d="m6 14 6-6 6 6" />
-                      </svg>
-                    </button>
-                    <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                      {selectedQuestion.vote_count || 0}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleQuestionVote(-1)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                        Number(selectedQuestion.current_user_vote || 0) === -1
-                          ? 'border-rose-300/30 bg-rose-500/20 text-rose-100 hover:bg-rose-400/30'
-                          : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                      }`}
-                      aria-label="Downvote question"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path d="m6 10 6 6 6-6" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleQuestionBookmark(selectedQuestion.id)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                        selectedQuestion.is_bookmarked
-                          ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                          : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                      }`}
-                      aria-label="Bookmark question"
-                    >
-                      <svg viewBox="0 0 24 24" fill={selectedQuestion.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                      </svg>
-                    </button>
-                    <span className="min-w-[2ch] text-center text-[11px] font-semibold text-amber-100">
-                      {selectedQuestion.bookmarks_count || 0}
-                    </span>
-                  </div>
+                  <VotePanel
+                    score={selectedQuestion.vote_count}
+                    currentVote={selectedQuestion.current_user_vote}
+                    onUpvote={() => handleQuestionVote(1)}
+                    onDownvote={() => handleQuestionVote(-1)}
+                    upvoteAriaLabel="Upvote question"
+                    downvoteAriaLabel="Downvote question"
+                    showBookmark
+                    isBookmarked={Boolean(selectedQuestion.is_bookmarked)}
+                    onToggleBookmark={() => handleToggleQuestionBookmark(selectedQuestion.id)}
+                    bookmarkAriaLabel="Bookmark question"
+                    showBookmarkCount
+                    bookmarkCount={selectedQuestion.bookmarks_count}
+                  />
                   
                   {/* Question body, tags, username */ }
                   <div className="min-w-0 flex-1">
@@ -3436,41 +3379,18 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                           <li key={answer.id} className="rounded-2xl py-3">
                             <div className="flex items-start gap-2">
                               <div className="flex shrink-0 flex-col items-center gap-1">
-                                <div className="flex flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAnswerVote(answer.id, 1)}
-                                    disabled={disableAnswerVoting}
-                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                                      Number(answer.current_user_vote || 0) === 1
-                                        ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                                    } ${disableAnswerVoting ? 'cursor-not-allowed opacity-60 hover:bg-white/10' : ''}`}
-                                    aria-label="Upvote answer"
-                                  >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                                      <path d="m6 14 6-6 6 6" />
-                                    </svg>
-                                  </button>
-                                  <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                                    {answer.vote_count || 0}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAnswerVote(answer.id, -1)}
-                                    disabled={disableAnswerVoting}
-                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition ${
-                                      Number(answer.current_user_vote || 0) === -1
-                                        ? 'border-rose-300/30 bg-rose-500/20 text-rose-100 hover:bg-rose-400/30'
-                                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                                    } ${disableAnswerVoting ? 'cursor-not-allowed opacity-60 hover:bg-white/10' : ''}`}
-                                    aria-label="Downvote answer"
-                                  >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                                      <path d="m6 10 6 6 6-6" />
-                                    </svg>
-                                  </button>
-                                </div>
+                                <VotePanel
+                                  score={answer.vote_count}
+                                  currentVote={answer.current_user_vote}
+                                  onUpvote={() => handleAnswerVote(answer.id, 1)}
+                                  onDownvote={() => handleAnswerVote(answer.id, -1)}
+                                  upvoteAriaLabel="Upvote answer"
+                                  downvoteAriaLabel="Downvote answer"
+                                  upvoteDisabled={disableAnswerVoting}
+                                  downvoteDisabled={disableAnswerVoting}
+                                  disabledClassName="cursor-not-allowed opacity-60 hover:bg-white/10"
+                                  className="flex flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2"
+                                />
 
                                 {/* Answer approval component */ }
                                 <button
