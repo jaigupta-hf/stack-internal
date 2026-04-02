@@ -4,67 +4,9 @@ import QuestionTab from './QuestionTab';
 import ArticlesTab from './ArticlesTab';
 import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
+import { formatRelativeTimestamp } from '../../utils/dateTime';
 
-const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  day: 'numeric',
-});
-
-const istMonthFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  month: 'long',
-});
-
-const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-const getOrdinal = (day) => {
-  if (day >= 11 && day <= 13) {
-    return `${day}th`;
-  }
-
-  const lastDigit = day % 10;
-  if (lastDigit === 1) {
-    return `${day}st`;
-  }
-  if (lastDigit === 2) {
-    return `${day}nd`;
-  }
-  if (lastDigit === 3) {
-    return `${day}rd`;
-  }
-  return `${day}th`;
-};
-
-const formatCollectionTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  const day = Number(istDayFormatter.format(created));
-  const month = istMonthFormatter.format(created).toLowerCase();
-  const time = istTimeFormatter.format(created);
-  return `${getOrdinal(day)} ${month} at ${time}`;
-};
+const formatCollectionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
 const articleTypes = new Set([20, 21, 22, 23]);
 
