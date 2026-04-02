@@ -144,3 +144,5 @@ export const formatVerboseRelativeTime = (timestamp) => {
 
   return `${years} year${years === 1 ? '' : 's'} ago`;
 };
+
+export const formatProfileTime = (timestamp) => formatVerboseRelativeTime(timestamp);
