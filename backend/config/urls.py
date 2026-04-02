@@ -6,5 +6,8 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/teams/', include('teams.urls')),
     path('api/posts/', include('posts.urls')),
+    path('api/tags/', include('tags.urls')),
+    path('api/comments/', include('comments.urls')),
     path('api/collections/', include('apps.collections.urls')),
+    path('api/votes/', include('votes.urls')),
 ]
