@@ -9,6 +9,8 @@ from django.utils import timezone
 from .models import User
 from .serializers import UserSerializer, GoogleAuthSerializer
 from .utils.auth import generate_jwt_token
+from teams.models import TeamUser
+from posts.models import Post
 
 
 @api_view(['POST'])
@@ -89,3 +91,156 @@ def logout_user(request):
     With JWT, logout is handled on the client by removing the token.
     """
     return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def get_profile(request):
+    """
+    Get authenticated user's profile and top posts for a team.
+    """
+    user = request.user
+
+    if request.method == 'PATCH':
+        updates = {}
+
+        if 'name' in request.data:
+            clean_name = str(request.data.get('name', '')).strip()
+            if not clean_name:
+                return Response({'error': 'Name cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+            if len(clean_name) > 255:
+                return Response({'error': 'Name cannot exceed 255 characters'}, status=status.HTTP_400_BAD_REQUEST)
+            updates['name'] = clean_name
+
+        if 'title' in request.data:
+            clean_title = str(request.data.get('title', '')).strip()
+            if len(clean_title) > 255:
+                return Response({'error': 'Title cannot exceed 255 characters'}, status=status.HTTP_400_BAD_REQUEST)
+            updates['title'] = clean_title
+
+        if 'about' in request.data:
+            updates['about'] = str(request.data.get('about', '')).strip()
+
+        for field_name, value in updates.items():
+            setattr(user, field_name, value)
+
+        if updates:
+            user.last_seen = timezone.now()
+            user.save(update_fields=[*updates.keys(), 'last_seen'])
+
+        return Response(
+            {
+                'id': user.id,
+                'name': user.name,
+                'title': user.title,
+                'about': user.about,
+                'last_seen': user.last_seen,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    team_id = request.query_params.get('team_id')
+    if not team_id:
+        return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        TeamUser.objects.select_related('team').get(team_id=team_id, user=user)
+    except TeamUser.DoesNotExist:
+        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+
+    target_user = user
+    user_id = request.query_params.get('user_id')
+    if user_id:
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not TeamUser.objects.filter(team_id=team_id, user=target_user).exists():
+            return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+
+    membership = TeamUser.objects.select_related('team').get(team_id=team_id, user=target_user)
+
+    user.last_seen = timezone.now()
+    user.save(update_fields=['last_seen'])
+
+    posts = (
+        Post.objects.filter(team_id=team_id, user=target_user)
+        .select_related('parent')
+        .order_by('-created_at')[:50]
+    )
+
+    post_type_labels = {
+        0: 'Question',
+        1: 'Answer',
+        20: 'Article',
+        21: 'Article',
+        22: 'Article',
+        23: 'Article',
+    }
+
+    post_type_keys = {
+        0: 'question',
+        1: 'answer',
+        20: 'article',
+        21: 'article',
+        22: 'article',
+        23: 'article',
+    }
+
+    activities = []
+    for post in posts:
+        display_title = post.title.strip()
+        reference_post_id = post.id
+        reference_type = 'article' if post.type in (20, 21, 22, 23) else 'question'
+
+        if post.type == 1:
+            parent_title = post.parent.title.strip() if post.parent and post.parent.title else ''
+            display_title = f'{parent_title or "Untitled question"}'
+            if post.parent_id:
+                reference_post_id = post.parent_id
+            reference_type = 'question'
+
+        activities.append(
+            {
+                'post_id': post.id,
+                'type': post.type,
+                'delete_flag': post.delete_flag,
+                'type_key': post_type_keys.get(post.type, 'post'),
+                'type_label': post_type_labels.get(post.type, 'Post'),
+                'title': display_title or 'Untitled post',
+                'created_at': post.created_at,
+                'reference_post_id': reference_post_id,
+                'reference_type': reference_type,
+            }
+        )
+
+    can_edit = target_user.id == user.id
+    tag_usages = []
+    for tag_user in target_user.tag_users.select_related('tag').filter(count__gt=0).order_by('-count', 'tag__name'):
+        item = {
+            'tag_id': tag_user.tag_id,
+            'tag_name': tag_user.tag.name,
+            'count': tag_user.count,
+        }
+        if can_edit:
+            item['is_watching'] = tag_user.is_watching
+            item['is_ignored'] = tag_user.is_ignored
+        tag_usages.append(item)
+
+    return Response(
+        {
+            'id': target_user.id,
+            'name': target_user.name,
+            'title': target_user.title,
+            'about': target_user.about,
+            'membership_type': 'admin' if membership.is_admin else 'member',
+            'reputation': membership.reputation,
+            'team_joined_at': membership.joined_at,
+            'last_seen': target_user.last_seen,
+            'can_edit': can_edit,
+            'activities': activities,
+            'tag_usages': tag_usages,
+        },
+        status=status.HTTP_200_OK,
+    )

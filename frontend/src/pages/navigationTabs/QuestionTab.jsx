@@ -1,114 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, teamService, voteService } from '../../services/api';
+import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import VotePanel from '../../components/VotePanel';
+import TagPreferencesPanel from '../../components/TagPreferencesPanel';
+import PostComposerModal from '../../components/PostComposerModal';
+import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
 
-const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  day: 'numeric',
-});
-
-const istMonthFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  month: 'long',
-});
-
-const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-const getOrdinal = (day) => {
-  if (day >= 11 && day <= 13) {
-    return `${day}th`;
-  }
-
-  const lastDigit = day % 10;
-  if (lastDigit === 1) {
-    return `${day}st`;
-  }
-  if (lastDigit === 2) {
-    return `${day}nd`;
-  }
-  if (lastDigit === 3) {
-    return `${day}rd`;
-  }
-  return `${day}th`;
-};
-
-const formatQuestionTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  const day = Number(istDayFormatter.format(created));
-  const month = istMonthFormatter.format(created).toLowerCase();
-  const time = istTimeFormatter.format(created);
-  return `${getOrdinal(day)} ${month} at ${time}`;
-};
-
-const formatVerboseRelativeTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const dayMs = 24 * 60 * 60 * 1000;
-  const getIstDayStamp = (value) => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(value);
-
-    const year = Number(parts.find((part) => part.type === 'year')?.value);
-    const month = Number(parts.find((part) => part.type === 'month')?.value);
-    const day = Number(parts.find((part) => part.type === 'day')?.value);
-
-    return Date.UTC(year, month - 1, day);
-  };
-
-  const now = new Date();
-  const days = Math.floor((getIstDayStamp(now) - getIstDayStamp(created)) / dayMs);
-
-  if (days === 0) {
-    return 'today';
-  }
-
-  if (days < 30) {
-    return `${days} day${days === 1 ? '' : 's'} ago`;
-  }
-
-  const months = Math.floor(days / 30);
-  if (days < 365) {
-    return `${months} month${months === 1 ? '' : 's'} ago`;
-  }
-
-  const years = Math.floor(days / 365);
-  const remainingMonths = Math.floor((days % 365) / 30);
-
-  if (remainingMonths > 0) {
-    return `${years} year${years === 1 ? '' : 's'}, ${remainingMonths} month${remainingMonths === 1 ? '' : 's'} ago`;
-  }
-
-  return `${years} year${years === 1 ? '' : 's'} ago`;
-};
+const formatQuestionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
 const isActuallyEdited = (createdAt, modifiedAt) => {
   if (!createdAt || !modifiedAt) {
@@ -2105,8 +2003,8 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   };
 
   const questionCommentData = selectedQuestion
-    ? getCommentDataForTarget('question', selectedQuestion.id, selectedQuestion.comments)
-    : { roots: [], repliesByParentId: {}, orphanRepliesByMissingParent: {} };
+    ? buildCommentData(selectedQuestion.comments)
+    : EMPTY_COMMENT_DATA;
   const sortedAnswers = selectedQuestion?.answers
     ? (() => {
         const approvedAnswerId = selectedQuestion.approved_answer;
@@ -2248,39 +2146,17 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                         ? 'border-slate-300/25 bg-slate-500/5'
                         : 'border-white/10 bg-black/20'
                     }`}>
-                      <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                        <button
-                          type="button"
-                          onClick={() => handleListQuestionUpvote(question.id)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                            Number(question.current_user_vote || 0) === 1
-                              ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                              : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/20'
-                          }`}
-                          aria-label="Upvote question"
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d="m6 14 6-6 6 6" />
-                          </svg>
-                        </button>
-                        <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                          {question.vote_count || 0}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleQuestionBookmark(question.id)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                            question.is_bookmarked
-                              ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                              : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/20'
-                          }`}
-                          aria-label="Bookmark question"
-                        >
-                          <svg viewBox="0 0 24 24" fill={question.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                          </svg>
-                        </button>
-                      </div>
+                      <VotePanel
+                        score={question.vote_count}
+                        currentVote={question.current_user_vote}
+                        onUpvote={() => handleListQuestionUpvote(question.id)}
+                        upvoteAriaLabel="Upvote question"
+                        showBookmark
+                        isBookmarked={Boolean(question.is_bookmarked)}
+                        onToggleBookmark={() => handleToggleQuestionBookmark(question.id)}
+                        bookmarkAriaLabel="Bookmark question"
+                        neutralButtonClassName="border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
+                      />
 
                       <div className="min-w-0 flex-1 text-left">
                         <div className="mb-2 flex items-center gap-2">
@@ -2387,121 +2263,29 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
               {/* Right Sidebar with tag preferences */}
               <aside className="space-y-3">
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <h3 className="text-xs font-semibold tracking-[0.12em] text-slate-300 uppercase">Watching Tags</h3>
-
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {watchingTags.length === 0 ? (
-                      <p className="text-xs text-slate-400">No watching tags yet.</p>
-                    ) : (
-                      watchingTags.map((tag) => (
-                        <span key={`watch-${tag.tag_id}`} className="inline-flex items-center gap-1 rounded-sm border border-emerald-300/0 bg-emerald-300/10 px-2.5 py-0.5 text-[11px] text-emerald-200">
-                          <button
-                            type="button"
-                            onClick={() => handleApplyTagFilter(tag.tag_name || '')}
-                            className="transition hover:text-white"
-                          >
-                            {tag.tag_name}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSetTagPreference({ tagId: tag.tag_id, field: 'is_watching', value: false })}
-                            disabled={updatingTagPreferenceKey === `is_watching:${tag.tag_id}`}
-                            className="text-emerald-200 transition hover:text-white disabled:opacity-60"
-                            aria-label={`Remove ${tag.tag_name} from watching`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="mt-3">
-                    <input
-                      type="text"
-                      value={watchTagInput}
-                      onChange={(e) => setWatchTagInput(e.target.value)}
-                      className="w-full rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70"
-                      placeholder="Add watching tag"
-                    />
-                    {watchSuggestions.length > 0 ? (
-                      <div className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-[#0f141c] p-2">
-                        {watchSuggestions.map((tag) => (
-                          <button
-                            key={`watch-suggest-${tag.id}`}
-                            type="button"
-                            onClick={() => {
-                              handleSetTagPreference({ tagId: tag.id, field: 'is_watching', value: true });
-                              setWatchTagInput('');
-                            }}
-                            className="block w-full rounded-lg px-2 py-1 text-left text-xs text-slate-200 transition hover:bg-white/10"
-                          >
-                            {tag.name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                  <h3 className="text-xs font-semibold tracking-[0.12em] text-slate-300 uppercase">Ignored Tags</h3>
-
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {ignoredTags.length === 0 ? (
-                      <p className="text-xs text-slate-400">No ignored tags yet.</p>
-                    ) : (
-                      ignoredTags.map((tag) => (
-                        <span key={`ignore-${tag.tag_id}`} className="inline-flex items-center gap-1 rounded-sm border border-rose-300/0 bg-rose-300/10 px-2.5 py-0.5 text-[11px] text-rose-200">
-                          <button
-                            type="button"
-                            onClick={() => handleApplyTagFilter(tag.tag_name || '')}
-                            className="transition hover:text-white"
-                          >
-                            {tag.tag_name}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSetTagPreference({ tagId: tag.tag_id, field: 'is_ignored', value: false })}
-                            disabled={updatingTagPreferenceKey === `is_ignored:${tag.tag_id}`}
-                            className="text-rose-200 transition hover:text-white disabled:opacity-60"
-                            aria-label={`Remove ${tag.tag_name} from ignored`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="mt-3">
-                    <input
-                      type="text"
-                      value={ignoreTagInput}
-                      onChange={(e) => setIgnoreTagInput(e.target.value)}
-                      className="w-full rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70"
-                      placeholder="Add ignored tag"
-                    />
-                    {ignoreSuggestions.length > 0 ? (
-                      <div className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-[#0f141c] p-2">
-                        {ignoreSuggestions.map((tag) => (
-                          <button
-                            key={`ignore-suggest-${tag.id}`}
-                            type="button"
-                            onClick={() => {
-                              handleSetTagPreference({ tagId: tag.id, field: 'is_ignored', value: true });
-                              setIgnoreTagInput('');
-                            }}
-                            className="block w-full rounded-lg px-2 py-1 text-left text-xs text-slate-200 transition hover:bg-white/10"
-                          >
-                            {tag.name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
+                <TagPreferencesPanel
+                  watchingTags={watchingTags}
+                  ignoredTags={ignoredTags}
+                  watchTagInput={watchTagInput}
+                  onWatchTagInputChange={setWatchTagInput}
+                  watchSuggestions={watchSuggestions}
+                  onAddWatchTag={(tag) => {
+                    handleSetTagPreference({ tagId: tag.id, field: 'is_watching', value: true });
+                    setWatchTagInput('');
+                  }}
+                  ignoreTagInput={ignoreTagInput}
+                  onIgnoreTagInputChange={setIgnoreTagInput}
+                  ignoreSuggestions={ignoreSuggestions}
+                  onAddIgnoreTag={(tag) => {
+                    handleSetTagPreference({ tagId: tag.id, field: 'is_ignored', value: true });
+                    setIgnoreTagInput('');
+                  }}
+                  onTagSelect={handleApplyTagFilter}
+                  onSetTagPreference={handleSetTagPreference}
+                  updatingTagPreferenceKey={updatingTagPreferenceKey}
+                  loading={loadingTagPreferences}
+                  error={tagPreferenceError}
+                />
 
                 <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                   <h3 className="text-xs font-semibold tracking-[0.12em] text-slate-300 uppercase">Related Tags</h3>
@@ -2524,12 +2308,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                   </div>
                 </div>
 
-                {loadingTagPreferences ? <p className="text-xs text-slate-400">Loading tag preferences...</p> : null}
-                {tagPreferenceError ? (
-                  <p className="rounded-full border border-rose-400/40 bg-rose-500/15 px-3 py-1 text-xs text-rose-200">
-                    {tagPreferenceError}
-                  </p>
-                ) : null}
               </aside>
             </div>
           </>
@@ -2538,147 +2316,52 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
       ) : null}
 
       {/* Ask question modal */ }
-      {showAskModal && !embeddedMode ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-[2rem] border border-white/5 bg-[#111821] p-6 shadow-2xl shadow-black/50 sm:p-6">
-            <div className="mb-2 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-2xl font-semibold text-white">Ask a question</h3>
-              </div>
-            </div>
-
-            <form onSubmit={handleQuestionSubmit} className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Title</label>
-                <input
-                  type="text"
-                  value={questionTitle}
-                  onChange={(e) => setQuestionTitle(e.target.value)}
-                  className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                  placeholder="What issue are you facing?"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Body</label>
-                <textarea
-                  value={questionBody}
-                  onChange={(e) => setQuestionBody(e.target.value)}
-                  className="min-h-[180px] w-full rounded-3xl border border-white/10 bg-black/20 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                  placeholder="Describe your question with all relevant details..."
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">
-                  Tags <span className="text-slate-400">(max 5)</span>
-                </label>
-
-                  <div className="mb-0.5 flex flex-wrap gap-2">
-                    {questionTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-2 rounded-sm border border-cyan-300/0 bg-cyan-300/10 px-3 py-1 text-xs text-cyan-400"
-                      >
-                        {tag}
-                        <button
-                          type="button"
-                          onClick={() => removeTag(tag)}
-                          className="text-cyan-200 transition hover:text-white"
-                          aria-label={`Remove ${tag}`}
-                        >
-                          x
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => {
-                        setTagError('');
-                        setTagInput(sanitizeTagName(e.target.value));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
-                          e.preventDefault();
-                          addTag(tagInput);
-                        }
-                      }}
-                      className="w-full rounded-full border border-white/10 bg-black/25 px-4 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                      placeholder="Type a tag and press Space"
-                    />
-
-                    {(tagSuggestions.length > 0 || searchingTags) && tagInput.trim() ? (
-                      <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-white/15 bg-[#0f141c] shadow-lg shadow-black/40">
-                        {searchingTags ? (
-                          <p className="px-3 py-2 text-xs text-slate-400">Searching tags...</p>
-                        ) : (
-                          <ul className="max-h-48 overflow-y-auto py-1">
-                            {tagSuggestions.map((tag) => (
-                              <li key={tag.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => addTag(tag.name)}
-                                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"
-                                >
-                                  <span>{tag.name}</span>
-                                  <span className="text-xs text-slate-400">{(Number(tag.question_count || 0) + Number(tag.article_count || 0))} posts</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                
-              </div>
-
-              {tagError ? (
-                <p className="rounded-full border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-sm text-amber-200">
-                  {tagError}
-                </p>
-              ) : null}
-
-              {questionError ? (
-                <p className="rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-                  {questionError}
-                </p>
-              ) : null}
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={submittingQuestion}
-                  className="rounded-full bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submittingQuestion ? 'Posting...' : 'Post Question'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAskModal(false);
-                    setQuestionError('');
-                    setTagError('');
-                    setQuestionTags([]);
-                    setTagInput('');
-                    setTagSuggestions([]);
-                  }}
-                  className="rounded-full border border-white/0 bg-white/10 px-5 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/20"
-                >
-                  Cancel
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      ) : null}
+      <PostComposerModal
+        open={showAskModal && !embeddedMode}
+        modalTitle="Ask a question"
+        onSubmit={handleQuestionSubmit}
+        titleValue={questionTitle}
+        onTitleChange={setQuestionTitle}
+        titlePlaceholder="What issue are you facing?"
+        bodyValue={questionBody}
+        onBodyChange={setQuestionBody}
+        bodyPlaceholder="Describe your question with all relevant details..."
+        bodyMinHeightClassName="min-h-[180px]"
+        tags={questionTags}
+        onRemoveTag={removeTag}
+        tagInput={tagInput}
+        onTagInputChange={(value) => {
+          setTagError('');
+          setTagInput(sanitizeTagName(value));
+        }}
+        onTagKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+            e.preventDefault();
+            addTag(tagInput);
+          }
+        }}
+        tagSuggestions={tagSuggestions}
+        searchingTags={searchingTags}
+        onAddTag={addTag}
+        tagError={tagError}
+        formError={questionError}
+        isSubmitting={submittingQuestion}
+        submitLabel="Post Question"
+        submittingLabel="Posting..."
+        cancelLabel="Cancel"
+        onClose={() => {
+          setShowAskModal(false);
+          setQuestionError('');
+          setTagError('');
+          setQuestionTags([]);
+          setTagInput('');
+          setTagSuggestions([]);
+        }}
+        panelClassName="w-full max-w-2xl rounded-[2rem] border border-white/5 bg-[#111821] p-6 shadow-2xl shadow-black/50 sm:p-6"
+        fieldBorderClassName="border-white/10"
+        submitButtonClassName="rounded-full bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+        closeButtonClassName="rounded-full border border-white/0 bg-white/10 px-5 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/20"
+      />
 
       {/* Close question modal */ }
       {showCloseModal && selectedQuestion ? (
@@ -3078,56 +2761,20 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
               {/* Question voting component */ }
                 <div className="flex items-start gap-2">
-                  <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                    <button
-                      type="button"
-                      onClick={() => handleQuestionVote(1)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                        Number(selectedQuestion.current_user_vote || 0) === 1
-                          ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                          : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                      }`}
-                      aria-label="Upvote question"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path d="m6 14 6-6 6 6" />
-                      </svg>
-                    </button>
-                    <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                      {selectedQuestion.vote_count || 0}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleQuestionVote(-1)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                        Number(selectedQuestion.current_user_vote || 0) === -1
-                          ? 'border-rose-300/30 bg-rose-500/20 text-rose-100 hover:bg-rose-400/30'
-                          : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                      }`}
-                      aria-label="Downvote question"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path d="m6 10 6 6 6-6" />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleQuestionBookmark(selectedQuestion.id)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                        selectedQuestion.is_bookmarked
-                          ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                          : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                      }`}
-                      aria-label="Bookmark question"
-                    >
-                      <svg viewBox="0 0 24 24" fill={selectedQuestion.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                        <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                      </svg>
-                    </button>
-                    <span className="min-w-[2ch] text-center text-[11px] font-semibold text-amber-100">
-                      {selectedQuestion.bookmarks_count || 0}
-                    </span>
-                  </div>
+                  <VotePanel
+                    score={selectedQuestion.vote_count}
+                    currentVote={selectedQuestion.current_user_vote}
+                    onUpvote={() => handleQuestionVote(1)}
+                    onDownvote={() => handleQuestionVote(-1)}
+                    upvoteAriaLabel="Upvote question"
+                    downvoteAriaLabel="Downvote question"
+                    showBookmark
+                    isBookmarked={Boolean(selectedQuestion.is_bookmarked)}
+                    onToggleBookmark={() => handleToggleQuestionBookmark(selectedQuestion.id)}
+                    bookmarkAriaLabel="Bookmark question"
+                    showBookmarkCount
+                    bookmarkCount={selectedQuestion.bookmarks_count}
+                  />
                   
                   {/* Question body, tags, username */ }
                   <div className="min-w-0 flex-1">
@@ -3353,107 +3000,48 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                       </div>
                     </div>
                     
-                    {/* Question comments section */ }
-                    <div className="mt-3 max-w-xl">
-                        <div className="flex items-center gap-2">
-                            <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                            Comments ({(selectedQuestion.comments || []).length})
-                            </p>
-                            <button
-                            type="button"
-                            onClick={() => toggleCommentSection('question', selectedQuestion.id)}
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                            aria-label="Toggle comments"
-                            >
-                            {collapsedCommentSections[buildCommentKey('question', selectedQuestion.id)] ? (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                <path d="m6 10 6 6 6-6" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                <path d="m6 14 6-6 6 6" />
-                              </svg>
-                            )}
-                            </button>
-                        </div>
-
-                        {!collapsedCommentSections[buildCommentKey('question', selectedQuestion.id)] ? (
-                            questionCommentData.roots.length > 0 ? (
-                            <ul className="mt-2 space-y-1.5">
-                                {questionCommentData.roots.map((comment) =>
-                                renderCommentNode({
-                                    targetType: 'question',
-                                    targetId: selectedQuestion.id,
-                                    comment,
-                                    depth: 0,
-                                    repliesByParentId: questionCommentData.repliesByParentId,
-                                })
-                                )}
-                            </ul>
-                            ) : (null)
-                        ) : null}
-
-                        <div className="mt-2.5 flex items-center gap-2">
-                            <input
-                            type="text"
-                            value={commentDrafts[buildCommentKey('question', selectedQuestion.id)] || ''}
-                            onChange={(e) => handleCommentDraftChange('question', selectedQuestion.id, e.target.value)}
-                            maxLength={280}
-                            className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                            placeholder="Add a short comment"
-                            />
-                            <button
-                            type="button"
-                            onClick={() => handleAddComment('question', selectedQuestion.id, selectedQuestion.id)}
-                            className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                            >
-                            Add
-                            </button>
-                        </div>
-
-                        {commentErrors[buildCommentKey('question', selectedQuestion.id)] ? (
-                            <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                            {commentErrors[buildCommentKey('question', selectedQuestion.id)]}
-                            </p>
-                        ) : null}
-
-                        {Object.keys(questionCommentData.orphanRepliesByMissingParent).length > 0 &&
-                        !showDeletedTrees[buildCommentKey('question', selectedQuestion.id)] ? (
-                            <button
-                            type="button"
-                            onClick={() =>
-                                setShowDeletedTrees((prev) => ({
-                                ...prev,
-                                [buildCommentKey('question', selectedQuestion.id)]: true,
-                                }))
-                            }
-                            className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                            >
-                            show more comments
-                            </button>
-                        ) : null}
-
-                        {showDeletedTrees[buildCommentKey('question', selectedQuestion.id)] ? (
-                            <ul className="mt-2 space-y-1.5">
-                            {Object.entries(questionCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                                <li key={`deleted-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                                <p className="text-xs text-slate-500 italic">deleted</p>
-                                <ul className="mt-1 ml-3 space-y-1.5">
-                                    {replies.map((reply) =>
-                                    renderCommentNode({
-                                        targetType: 'question',
-                                        targetId: selectedQuestion.id,
-                                        comment: reply,
-                                        depth: 1,
-                                        repliesByParentId: questionCommentData.repliesByParentId,
-                                    })
-                                    )}
-                                </ul>
-                                </li>
-                            ))}
-                            </ul>
-                        ) : null}
-                        </div>
+                    <CommentSection
+                      targetType="question"
+                      targetId={selectedQuestion.id}
+                      commentsCount={(selectedQuestion.comments || []).length}
+                      commentData={questionCommentData}
+                      collapsed={Boolean(collapsedCommentSections[buildCommentKey('question', selectedQuestion.id)])}
+                      onToggleCollapsed={() => toggleCommentSection('question', selectedQuestion.id)}
+                      draftValue={commentDrafts[buildCommentKey('question', selectedQuestion.id)] || ''}
+                      onDraftChange={(value) => handleCommentDraftChange('question', selectedQuestion.id, value)}
+                      onAddComment={() => handleAddComment('question', selectedQuestion.id, selectedQuestion.id)}
+                      errorMessage={commentErrors[buildCommentKey('question', selectedQuestion.id)]}
+                      showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('question', selectedQuestion.id)])}
+                      onShowDeletedTree={() =>
+                        setShowDeletedTrees((prev) => ({
+                          ...prev,
+                          [buildCommentKey('question', selectedQuestion.id)]: true,
+                        }))
+                      }
+                      activeCommentMenuKey={activeCommentMenuKey}
+                      editingCommentKey={editingCommentKey}
+                      editingCommentBody={editingCommentBody}
+                      onEditingCommentBodyChange={setEditingCommentBody}
+                      replyDrafts={replyDrafts}
+                      activeReplyComposerKey={activeReplyComposerKey}
+                      onToggleCommentMenu={toggleCommentMenu}
+                      onToggleReplyComposer={toggleReplyComposer}
+                      onReplyDraftChange={handleReplyDraftChange}
+                      onSaveCommentEdit={handleSaveCommentEdit}
+                      onStartCommentEdit={handleStartCommentEdit}
+                      onDeleteComment={handleDeleteComment}
+                      onCommentUpvote={handleCommentUpvote}
+                      onAddReply={handleAddReply}
+                      onCancelCommentEdit={() => {
+                        setEditingCommentKey('');
+                        setEditingCommentBody('');
+                      }}
+                      onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                      onOpenUserProfile={onOpenUserProfile}
+                      formatTime={formatQuestionTime}
+                      getCommentKey={buildCommentKey}
+                      getCommentItemKey={buildCommentItemKey}
+                    />
                   </div>
                 </div>
 
@@ -3482,7 +3070,7 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                         const edited = isActuallyEdited(answer.created_at, answer.modified_at);
                         const editedByUsername = answer.edited_by_username || answer.user_name;
                         const showEditedByName = edited && editedByUsername && editedByUsername !== answer.user_name;
-                        const answerCommentData = getCommentDataForTarget('answer', answer.id, answer.comments);
+                        const answerCommentData = buildCommentData(answer.comments);
                         const isAnswerDeleted = Boolean(answer.delete_flag);
                         const disableAnswerVoting = Boolean(selectedQuestion.delete_flag || isAnswerDeleted);
                         const disableApprove = Boolean(!selectedQuestion.can_approve_answers || selectedQuestion.delete_flag || isAnswerDeleted);
@@ -3494,41 +3082,18 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                           <li key={answer.id} className="rounded-2xl py-3">
                             <div className="flex items-start gap-2">
                               <div className="flex shrink-0 flex-col items-center gap-1">
-                                <div className="flex flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAnswerVote(answer.id, 1)}
-                                    disabled={disableAnswerVoting}
-                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                                      Number(answer.current_user_vote || 0) === 1
-                                        ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                                    } ${disableAnswerVoting ? 'cursor-not-allowed opacity-60 hover:bg-white/10' : ''}`}
-                                    aria-label="Upvote answer"
-                                  >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                                      <path d="m6 14 6-6 6 6" />
-                                    </svg>
-                                  </button>
-                                  <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                                    {answer.vote_count || 0}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAnswerVote(answer.id, -1)}
-                                    disabled={disableAnswerVoting}
-                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs font-semibold transition ${
-                                      Number(answer.current_user_vote || 0) === -1
-                                        ? 'border-rose-300/30 bg-rose-500/20 text-rose-100 hover:bg-rose-400/30'
-                                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                                    } ${disableAnswerVoting ? 'cursor-not-allowed opacity-60 hover:bg-white/10' : ''}`}
-                                    aria-label="Downvote answer"
-                                  >
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                                      <path d="m6 10 6 6 6-6" />
-                                    </svg>
-                                  </button>
-                                </div>
+                                <VotePanel
+                                  score={answer.vote_count}
+                                  currentVote={answer.current_user_vote}
+                                  onUpvote={() => handleAnswerVote(answer.id, 1)}
+                                  onDownvote={() => handleAnswerVote(answer.id, -1)}
+                                  upvoteAriaLabel="Upvote answer"
+                                  downvoteAriaLabel="Downvote answer"
+                                  upvoteDisabled={disableAnswerVoting}
+                                  downvoteDisabled={disableAnswerVoting}
+                                  disabledClassName="cursor-not-allowed opacity-60 hover:bg-white/10"
+                                  className="flex flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2"
+                                />
 
                                 {/* Answer approval component */ }
                                 <button
@@ -3706,107 +3271,49 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                                         </div>
                                     </div>
 
-                                    {/* Answer comments section */ }
-                                    <div className="mt-3 max-w-lg">
-                                      <div className="flex items-center gap-2">
-                                        <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                                          Comments ({(answer.comments || []).length})
-                                        </p>
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleCommentSection('answer', answer.id)}
-                                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                                          aria-label="Toggle comments"
-                                        >
-                                          {collapsedCommentSections[buildCommentKey('answer', answer.id)] ? (
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                              <path d="m6 10 6 6 6-6" />
-                                            </svg>
-                                          ) : (
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                              <path d="m6 14 6-6 6 6" />
-                                            </svg>
-                                          )}
-                                        </button>
-                                      </div>
-
-                                      {!collapsedCommentSections[buildCommentKey('answer', answer.id)] ? (
-                                        answerCommentData.roots.length > 0 ? (
-                                          <ul className="mt-2 space-y-1.5">
-                                            {answerCommentData.roots.map((comment) =>
-                                              renderCommentNode({
-                                                targetType: 'answer',
-                                                targetId: answer.id,
-                                                comment,
-                                                depth: 0,
-                                                repliesByParentId: answerCommentData.repliesByParentId,
-                                              })
-                                            )}
-                                          </ul>
-                                        ) : ( null )
-                                      ) : null}
-
-                                      <div className="mt-2.5 flex items-center gap-2">
-                                        <input
-                                          type="text"
-                                          value={commentDrafts[buildCommentKey('answer', answer.id)] || ''}
-                                          onChange={(e) => handleCommentDraftChange('answer', answer.id, e.target.value)}
-                                          maxLength={280}
-                                          className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                                          placeholder="Add a short comment"
-                                        />
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAddComment('answer', answer.id, answer.id)}
-                                          className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                                        >
-                                          Add
-                                        </button>
-                                      </div>
-
-                                      {commentErrors[buildCommentKey('answer', answer.id)] ? (
-                                        <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                                          {commentErrors[buildCommentKey('answer', answer.id)]}
-                                        </p>
-                                      ) : null}
-
-                                      {Object.keys(answerCommentData.orphanRepliesByMissingParent).length > 0 &&
-                                      !showDeletedTrees[buildCommentKey('answer', answer.id)] ? (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setShowDeletedTrees((prev) => ({
-                                              ...prev,
-                                              [buildCommentKey('answer', answer.id)]: true,
-                                            }))
-                                          }
-                                          className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                                        >
-                                          show more comments
-                                        </button>
-                                      ) : null}
-
-                                      {showDeletedTrees[buildCommentKey('answer', answer.id)] ? (
-                                        <ul className="mt-2 space-y-1.5">
-                                          {Object.entries(answerCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                                            <li key={`deleted-answer-${answer.id}-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                                              <p className="text-xs text-slate-500 italic">deleted</p>
-                                              <ul className="mt-1 ml-3 space-y-1.5">
-                                                {replies.map((reply) =>
-                                                  renderCommentNode({
-                                                    targetType: 'answer',
-                                                    targetId: answer.id,
-                                                    comment: reply,
-                                                    depth: 1,
-                                                    repliesByParentId: answerCommentData.repliesByParentId,
-                                                  })
-                                                )}
-                                              </ul>
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      ) : null}
-                                    </div>
+                                    <CommentSection
+                                      targetType="answer"
+                                      targetId={answer.id}
+                                      commentsCount={(answer.comments || []).length}
+                                      commentData={answerCommentData}
+                                      collapsed={Boolean(collapsedCommentSections[buildCommentKey('answer', answer.id)])}
+                                      onToggleCollapsed={() => toggleCommentSection('answer', answer.id)}
+                                      draftValue={commentDrafts[buildCommentKey('answer', answer.id)] || ''}
+                                      onDraftChange={(value) => handleCommentDraftChange('answer', answer.id, value)}
+                                      onAddComment={() => handleAddComment('answer', answer.id, answer.id)}
+                                      errorMessage={commentErrors[buildCommentKey('answer', answer.id)]}
+                                      showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('answer', answer.id)])}
+                                      onShowDeletedTree={() =>
+                                        setShowDeletedTrees((prev) => ({
+                                          ...prev,
+                                          [buildCommentKey('answer', answer.id)]: true,
+                                        }))
+                                      }
+                                      activeCommentMenuKey={activeCommentMenuKey}
+                                      editingCommentKey={editingCommentKey}
+                                      editingCommentBody={editingCommentBody}
+                                      onEditingCommentBodyChange={setEditingCommentBody}
+                                      replyDrafts={replyDrafts}
+                                      activeReplyComposerKey={activeReplyComposerKey}
+                                      onToggleCommentMenu={toggleCommentMenu}
+                                      onToggleReplyComposer={toggleReplyComposer}
+                                      onReplyDraftChange={handleReplyDraftChange}
+                                      onSaveCommentEdit={handleSaveCommentEdit}
+                                      onStartCommentEdit={handleStartCommentEdit}
+                                      onDeleteComment={handleDeleteComment}
+                                      onCommentUpvote={handleCommentUpvote}
+                                      onAddReply={handleAddReply}
+                                      onCancelCommentEdit={() => {
+                                        setEditingCommentKey('');
+                                        setEditingCommentBody('');
+                                      }}
+                                      onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                                      onOpenUserProfile={onOpenUserProfile}
+                                      formatTime={formatQuestionTime}
+                                      getCommentKey={buildCommentKey}
+                                      getCommentItemKey={buildCommentItemKey}
+                                      containerClassName="mt-3 max-w-lg"
+                                    />
                                     <div className="mt-3 border-t border-white/15" />
                                   </>
                                 )}

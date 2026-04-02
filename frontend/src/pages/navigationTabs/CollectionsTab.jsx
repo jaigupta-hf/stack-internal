@@ -2,67 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { collectionService, commentService, postService, voteService } from '../../services/api';
 import QuestionTab from './QuestionTab';
 import ArticlesTab from './ArticlesTab';
+import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import VotePanel from '../../components/VotePanel';
+import { formatRelativeTimestamp } from '../../utils/dateTime';
 
-const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  day: 'numeric',
-});
-
-const istMonthFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  month: 'long',
-});
-
-const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-const getOrdinal = (day) => {
-  if (day >= 11 && day <= 13) {
-    return `${day}th`;
-  }
-
-  const lastDigit = day % 10;
-  if (lastDigit === 1) {
-    return `${day}st`;
-  }
-  if (lastDigit === 2) {
-    return `${day}nd`;
-  }
-  if (lastDigit === 3) {
-    return `${day}rd`;
-  }
-  return `${day}th`;
-};
-
-const formatCollectionTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  const day = Number(istDayFormatter.format(created));
-  const month = istMonthFormatter.format(created).toLowerCase();
-  const time = istTimeFormatter.format(created);
-  return `${getOrdinal(day)} ${month} at ${time}`;
-};
+const formatCollectionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
 const articleTypes = new Set([20, 21, 22, 23]);
 
@@ -1045,8 +989,8 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   };
 
   const collectionCommentData = selectedCollection
-    ? getCommentDataForTarget(selectedCollection.comments)
-    : { roots: [], repliesByParentId: {}, orphanRepliesByMissingParent: {} };
+    ? buildCommentData(selectedCollection.comments)
+    : EMPTY_COMMENT_DATA;
 
   return (
     /* Collection tab header */
@@ -1119,43 +1063,20 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
             {/* Collection voting component */ }
             {!selectedCollectionPost ? (
               <div className="mt-2 flex items-start gap-2">
-                <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                  <button
-                    type="button"
-                    onClick={handleCollectionUpvote}
-                    disabled={votingCollection}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                      Number(selectedCollection.current_user_vote || 0) === 1
-                        ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                    } ${votingCollection ? 'cursor-not-allowed opacity-70' : ''}`}
-                    aria-label="Upvote collection"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                      <path d="m6 14 6-6 6 6" />
-                    </svg>
-                  </button>
-                  <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                    {selectedCollection.vote_count || 0}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleToggleCollectionBookmark}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                      selectedCollection.is_bookmarked
-                        ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                    }`}
-                    aria-label="Bookmark collection"
-                  >
-                    <svg viewBox="0 0 24 24" fill={selectedCollection.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                    </svg>
-                  </button>
-                  <span className="min-w-[2ch] text-center text-[11px] font-semibold text-amber-100">
-                    {selectedCollection.bookmarks_count || 0}
-                  </span>
-                </div>
+                <VotePanel
+                  score={selectedCollection.vote_count}
+                  currentVote={selectedCollection.current_user_vote}
+                  onUpvote={handleCollectionUpvote}
+                  upvoteAriaLabel="Upvote collection"
+                  upvoteDisabled={votingCollection}
+                  disabledClassName="cursor-not-allowed opacity-70"
+                  showBookmark
+                  isBookmarked={Boolean(selectedCollection.is_bookmarked)}
+                  onToggleBookmark={handleToggleCollectionBookmark}
+                  bookmarkAriaLabel="Bookmark collection"
+                  showBookmarkCount
+                  bookmarkCount={selectedCollection.bookmarks_count}
+                />
 
                 <div className="min-w-0 flex-1">
                   {/* Collection description */ }
@@ -1165,119 +1086,60 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
                     </p>
                   </div>
 
-                  {/* Collection comments section */ }
-                  <div className="mt-3 max-w-xl">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                        Comments ({(selectedCollection.comments || []).length})
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => toggleCommentSection('collection', selectedCollection.id)}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                        aria-label="Toggle comments"
-                      >
-                        {collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)] ? (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                            <path d="m6 10 6 6 6-6" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                            <path d="m6 14 6-6 6 6" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
+                  <CommentSection
+                    targetType="collection"
+                    targetId={selectedCollection.id}
+                    commentsCount={(selectedCollection.comments || []).length}
+                    commentData={collectionCommentData}
+                    collapsed={Boolean(collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)])}
+                    onToggleCollapsed={() => toggleCommentSection('collection', selectedCollection.id)}
+                    draftValue={commentDrafts[buildCommentKey('collection', selectedCollection.id)] || ''}
+                    onDraftChange={(value) => handleCommentDraftChange('collection', selectedCollection.id, value)}
+                    onAddComment={() => handleAddComment('collection', selectedCollection.id)}
+                    errorMessage={commentErrors[buildCommentKey('collection', selectedCollection.id)]}
+                    showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('collection', selectedCollection.id)])}
+                    onShowDeletedTree={() =>
+                      setShowDeletedTrees((prev) => ({
+                        ...prev,
+                        [buildCommentKey('collection', selectedCollection.id)]: true,
+                      }))
+                    }
+                    activeCommentMenuKey={activeCommentMenuKey}
+                    editingCommentKey={editingCommentKey}
+                    editingCommentBody={editingCommentBody}
+                    onEditingCommentBodyChange={setEditingCommentBody}
+                    replyDrafts={replyDrafts}
+                    activeReplyComposerKey={activeReplyComposerKey}
+                    onToggleCommentMenu={toggleCommentMenu}
+                    onToggleReplyComposer={toggleReplyComposer}
+                    onReplyDraftChange={handleReplyDraftChange}
+                    onSaveCommentEdit={handleSaveCommentEdit}
+                    onStartCommentEdit={handleStartCommentEdit}
+                    onDeleteComment={handleDeleteComment}
+                    onCommentUpvote={handleCommentUpvote}
+                    onAddReply={handleAddReply}
+                    onCancelCommentEdit={() => {
+                      setEditingCommentKey('');
+                      setEditingCommentBody('');
+                    }}
+                    onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                    onOpenUserProfile={onOpenUserProfile}
+                    formatTime={formatCollectionTime}
+                    getCommentKey={buildCommentKey}
+                    getCommentItemKey={buildCommentItemKey}
+                  />
 
-                    {!collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)] ? (
-                    collectionCommentData.roots.length > 0 ? (
-                      <ul className="mt-2 space-y-1.5">
-                        {collectionCommentData.roots.map((comment) =>
-                          renderCommentNode({
-                            targetType: 'collection',
-                            targetId: selectedCollection.id,
-                            comment,
-                            depth: 0,
-                            repliesByParentId: collectionCommentData.repliesByParentId,
-                          })
-                        )}
-                      </ul>
-                    ) : (null)
-                    ) : null}
+                  {collectionVoteError ? (
+                    <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
+                      {collectionVoteError}
+                    </p>
+                  ) : null}
 
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={commentDrafts[buildCommentKey('collection', selectedCollection.id)] || ''}
-                        onChange={(e) => handleCommentDraftChange('collection', selectedCollection.id, e.target.value)}
-                        maxLength={280}
-                        className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                        placeholder="Add a short comment"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleAddComment('collection', selectedCollection.id)}
-                        className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                      >
-                        Add
-                      </button>
-                    </div>
-
-                    {commentErrors[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                        {commentErrors[buildCommentKey('collection', selectedCollection.id)]}
-                      </p>
-                    ) : null}
-
-                    {Object.keys(collectionCommentData.orphanRepliesByMissingParent).length > 0 &&
-                    !showDeletedTrees[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowDeletedTrees((prev) => ({
-                            ...prev,
-                            [buildCommentKey('collection', selectedCollection.id)]: true,
-                          }))
-                        }
-                        className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                      >
-                        show more comments
-                      </button>
-                    ) : null}
-
-                    {showDeletedTrees[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <ul className="mt-2 space-y-1.5">
-                        {Object.entries(collectionCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                          <li key={`deleted-collection-${selectedCollection.id}-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                            <p className="text-xs text-slate-500 italic">deleted</p>
-                            <ul className="mt-1 ml-3 space-y-1.5">
-                              {replies.map((reply) =>
-                                renderCommentNode({
-                                  targetType: 'collection',
-                                  targetId: selectedCollection.id,
-                                  comment: reply,
-                                  depth: 1,
-                                  repliesByParentId: collectionCommentData.repliesByParentId,
-                                })
-                              )}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-
-                    {collectionVoteError ? (
-                      <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                        {collectionVoteError}
-                      </p>
-                    ) : null}
-
-                    {collectionBookmarkError ? (
+                  {collectionBookmarkError ? (
                       <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
                         {collectionBookmarkError}
                       </p>
                     ) : null}
-                  </div>
                 </div>
               </div>
             ) : (
