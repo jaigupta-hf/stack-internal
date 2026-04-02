@@ -29,15 +29,27 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [openingArticle, setOpeningArticle] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [articleVoteError, setArticleVoteError] = useState('');
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [title, setTitle] = useState('');
   const [articleType, setArticleType] = useState(22);
@@ -108,20 +120,12 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
   useEffect(() => {
     setSelectedArticle(null);
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
     setArticleVoteError('');
     setIsEditingArticle(false);
     setEditError('');
     setEditTagError('');
-  }, [team.id]);
+  }, [team.id, resetCommentSectionState]);
 
   useEffect(() => {
     if (!showCreateModal) {
@@ -505,20 +509,12 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     }
 
     setSelectedArticle(null);
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
     setArticleVoteError('');
     setIsEditingArticle(false);
     setEditError('');
     setEditTagError('');
-  }, [getArticleIdFromUrl, setArticleIdInUrl]);
+  }, [getArticleIdFromUrl, setArticleIdInUrl, resetCommentSectionState]);
 
   useEffect(() => {
     const syncFromUrl = async () => {
@@ -527,15 +523,7 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
       if (!urlArticleId) {
         if (selectedArticle) {
           setSelectedArticle(null);
-          setCommentDrafts({});
-          setCommentErrors({});
-          setCollapsedCommentSections({});
-          setActiveCommentMenuKey('');
-          setEditingCommentKey('');
-          setEditingCommentBody('');
-          setReplyDrafts({});
-          setActiveReplyComposerKey('');
-          setShowDeletedTrees({});
+          resetCommentSectionState();
           setArticleVoteError('');
         }
         return;
@@ -556,7 +544,7 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [team.id, selectedArticle, getArticleIdFromUrl, openArticle]);
+  }, [team.id, selectedArticle, getArticleIdFromUrl, openArticle, resetCommentSectionState]);
 
   const handleArticleUpvote = async () => {
     if (!selectedArticle) {

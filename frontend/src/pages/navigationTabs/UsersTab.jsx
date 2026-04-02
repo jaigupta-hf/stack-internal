@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { teamService } from '../../services/api';
+import AsyncStateView from '../../components/AsyncStateView';
 
 function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUserId = null }) {
   const [users, setUsers] = useState([]);
@@ -39,6 +40,10 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
       return name.includes(query) || email.includes(query);
     });
   }, [users, searchQuery]);
+
+  const usersEmptyMessage = users.length === 0
+    ? 'No users found in this team.'
+    : 'No users match your search.';
 
   const handleToggleAdminRole = async (member) => {
     if (!canManageUsers) {
@@ -104,27 +109,16 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
         />
       </div>
 
-      {error ? (
-        <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-          {error}
-        </p>
-      ) : null}
-
-      {loading ? <p className="mt-6 text-slate-300">Loading users...</p> : null}
-
-      {!loading && users.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-          No users found in this team.
-        </div>
-      ) : null}
-
-      {!loading && users.length > 0 && visibleUsers.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-          No users match your search.
-        </div>
-      ) : null}
-
-      {!loading && visibleUsers.length > 0 ? (
+      <AsyncStateView
+        loading={loading}
+        error={error}
+        isEmpty={visibleUsers.length === 0}
+        loadingMessage="Loading users..."
+        emptyMessage={usersEmptyMessage}
+        loadingClassName="mt-6 text-slate-300"
+        errorClassName="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200"
+        emptyClassName="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400"
+      >
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {visibleUsers.map((member) => (
             <article
@@ -193,7 +187,7 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
             </article>
           ))}
         </div>
-      ) : null}
+      </AsyncStateView>
     </div>
   );
 }

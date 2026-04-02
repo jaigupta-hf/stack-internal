@@ -103,15 +103,27 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [editAnswerBody, setEditAnswerBody] = useState('');
   const [editAnswerError, setEditAnswerError] = useState('');
   const [savingAnswerEdit, setSavingAnswerEdit] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
   const [voteError, setVoteError] = useState('');
   const [approvalError, setApprovalError] = useState('');
   const [showCloseModal, setShowCloseModal] = useState(false);
@@ -249,15 +261,7 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     setEditingAnswerId(null);
     setEditAnswerBody('');
     setEditAnswerError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
     setVoteError('');
     setApprovalError('');
     setShowCloseModal(false);
@@ -278,7 +282,7 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     setSelectedBountyReason(BOUNTY_REASONS[0].title);
     setOfferingBounty(false);
     setAwardingBountyAnswerId(null);
-  }, []);
+  }, [resetCommentSectionState]);
 
   const mentionedUserIdSet = useMemo(
     () => new Set((selectedQuestion?.mentions || []).map((item) => Number(item.user_id))),

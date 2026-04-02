@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { postService } from '../../services/api';
+import AsyncStateView from '../../components/AsyncStateView';
 import { formatRelativeTimestamp } from '../../utils/dateTime';
 
 const formatQuestionTime = (timestamp) =>
@@ -54,17 +55,13 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
             Trending Questions
           </h3>
 
-          {loading ? (
-            <p className="text-sm text-slate-300">Loading trending questions...</p>
-          ) : error ? (
-            <p className="rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-              {error}
-            </p>
-          ) : trendingQuestions.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-              No trending questions yet.
-            </div>
-          ) : (
+          <AsyncStateView
+            loading={loading}
+            error={error}
+            isEmpty={trendingQuestions.length === 0}
+            loadingMessage="Loading trending questions..."
+            emptyMessage="No trending questions yet."
+          >
             <ul className="space-y-3">
               {trendingQuestions.map((question) => (
                 <li key={question.id}>
@@ -135,7 +132,7 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
                 </li>
               ))}
             </ul>
-          )}
+          </AsyncStateView>
         </div>
 
         <aside className="space-y-4">

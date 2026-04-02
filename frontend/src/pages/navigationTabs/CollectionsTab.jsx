@@ -10,6 +10,7 @@ import CommentSection, {
 } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import { formatRelativeTimestamp } from '../../utils/dateTime';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
 
 const formatCollectionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -54,15 +55,27 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   const [collectionVoteError, setCollectionVoteError] = useState('');
   const [collectionBookmarkError, setCollectionBookmarkError] = useState('');
   const [votingCollection, setVotingCollection] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
 
   const getCollectionIdFromUrl = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
@@ -167,15 +180,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setSelectedCollectionPost(null);
     setCollectionVoteError('');
     setCollectionBookmarkError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
 
     try {
       const detail = await collectionService.getCollectionDetail(collectionId);
@@ -192,7 +197,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     } finally {
       setOpeningCollection(false);
     }
-  }, [setCollectionStateInUrl]);
+  }, [setCollectionStateInUrl, resetCommentSectionState]);
 
   const openCollectionPost = useCallback(async (postRef, updateUrl = false) => {
     if (!postRef?.post_id) {
@@ -234,15 +239,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setPostSearchResults([]);
     setCollectionVoteError('');
     setCollectionBookmarkError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
 
     if (getCollectionIdFromUrl()) {
       setCollectionStateInUrl(null, null, true);
@@ -829,15 +826,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
           setCollectionBookmarkError('');
           setPostSearchTerm('');
           setPostSearchResults([]);
-          setCommentDrafts({});
-          setCommentErrors({});
-          setCollapsedCommentSections({});
-          setActiveCommentMenuKey('');
-          setEditingCommentKey('');
-          setEditingCommentBody('');
-          setReplyDrafts({});
-          setActiveReplyComposerKey('');
-          setShowDeletedTrees({});
+          resetCommentSectionState();
         }
         return;
       }
@@ -890,6 +879,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     getCollectionPostTypeFromUrl,
     openCollection,
     openCollectionPost,
+    resetCommentSectionState,
   ]);
 
   const handleAddPost = async (postId) => {
