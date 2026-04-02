@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, teamService, voteService } from '../../services/api';
-import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import CommentSection, {
+  buildCommentData,
+  EMPTY_COMMENT_DATA,
+  buildCommentKey,
+  buildCommentItemKey,
+} from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
@@ -531,37 +536,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     } finally {
       setFollowingQuestion(false);
     }
-  };
-
-  const buildCommentKey = (targetType, targetId) => `${targetType}:${targetId}`;
-  const buildCommentItemKey = (targetType, targetId, commentId) => `${targetType}:${targetId}:${commentId}`;
-
-  const getCommentDataForTarget = (targetType, targetId, serverComments) => {
-    const comments = Array.isArray(serverComments) ? serverComments : [];
-    const commentById = new Map(comments.map((comment) => [comment.id, comment]));
-    const repliesByParentId = {};
-    const orphanRepliesByMissingParent = {};
-
-    comments.forEach((comment) => {
-      if (!comment.parent_comment) {
-        return;
-      }
-
-      if (commentById.has(comment.parent_comment)) {
-        const list = repliesByParentId[comment.parent_comment] || [];
-        repliesByParentId[comment.parent_comment] = [...list, comment];
-        return;
-      }
-
-      const orphanList = orphanRepliesByMissingParent[comment.parent_comment] || [];
-      orphanRepliesByMissingParent[comment.parent_comment] = [...orphanList, comment];
-    });
-
-    return {
-      roots: comments.filter((comment) => !comment.parent_comment),
-      repliesByParentId,
-      orphanRepliesByMissingParent,
-    };
   };
 
   const handleCommentDraftChange = (targetType, targetId, value) => {
