@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { reputationService } from '../../../services/api';
+import { reputationService } from '../../services/api';
 
 function formatDateHeader(dateValue) {
   if (!dateValue) {

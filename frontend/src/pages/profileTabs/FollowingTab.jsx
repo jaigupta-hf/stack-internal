@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { postService } from '../../../services/api';
+import { postService } from '../../services/api';
 
 const formatFollowTime = (timestamp, formatProfileTime) => {
   if (typeof formatProfileTime === 'function') {
