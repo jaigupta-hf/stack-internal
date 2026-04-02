@@ -3,6 +3,7 @@ import { commentService, postService, tagService, voteService } from '../../serv
 import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
+import PostComposerModal from '../../components/PostComposerModal';
 
 const ARTICLE_TYPE_OPTIONS = [
   { label: 'Knowledge article', value: 22 },
@@ -1883,158 +1884,63 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
       ) : null}
 
       {/* Article creation modal */ }
-      {!embeddedMode && showCreateModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-[2rem] border border-white/10 bg-[#111821] p-6 shadow-2xl shadow-black/50 sm:p-8">
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-2xl font-semibold text-white">Create a new article</h3>
-                <p className="mt-1 text-sm text-slate-300">Publish official long-form content for your team.</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleCreateArticle} className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Title</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-full border border-white/15 bg-black/20 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                  placeholder="Article title"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Type</label>
-                <select
-                  value={articleType}
-                  onChange={(e) => setArticleType(Number(e.target.value))}
-                  className="w-full rounded-full border border-white/15 bg-black/20 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                >
-                  {ARTICLE_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value} className="bg-[#111821] text-slate-100">
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Body</label>
-                <textarea
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  className="min-h-[200px] w-full rounded-3xl border border-white/15 bg-black/20 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                  placeholder="Write article content..."
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">
-                  Tags <span className="text-slate-400">(max 5)</span>
-                </label>
-
-                <div className="mb-0.5 flex flex-wrap gap-2">
-                  {articleTags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-2 rounded-sm border border-cyan-300/0 bg-cyan-300/10 px-3 py-1 text-xs text-cyan-400"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        onClick={() => removeTag(tag)}
-                        className="text-cyan-200 transition hover:text-white"
-                        aria-label={`Remove ${tag}`}
-                      >
-                        x
-                      </button>
-                    </span>
-                  ))}
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => {
-                      setTagError('');
-                      setTagInput(normalizeTagName(e.target.value));
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
-                        e.preventDefault();
-                        addTag(tagInput);
-                      }
-                    }}
-                    className="w-full rounded-full border border-white/15 bg-black/25 px-4 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                    placeholder="Type a tag and press Space"
-                  />
-
-                  {(tagSuggestions.length > 0 || searchingTags) && tagInput.trim() ? (
-                    <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-white/15 bg-[#0f141c] shadow-lg shadow-black/40">
-                      {searchingTags ? (
-                        <p className="px-3 py-2 text-xs text-slate-400">Searching tags...</p>
-                      ) : (
-                        <ul className="max-h-48 overflow-y-auto py-1">
-                          {tagSuggestions.map((tag) => (
-                            <li key={tag.id}>
-                              <button
-                                type="button"
-                                onClick={() => addTag(tag.name)}
-                                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"
-                              >
-                                <span>{tag.name}</span>
-                                <span className="text-xs text-slate-400">{(Number(tag.question_count || 0) + Number(tag.article_count || 0))} posts</span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              {tagError ? (
-                <p className="rounded-full border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-sm text-amber-200">
-                  {tagError}
-                </p>
-              ) : null}
-
-              {formError ? (
-                <p className="rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-                  {formError}
-                </p>
-              ) : null}
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    resetCreateForm();
-                  }}
-                  className="rounded-full border border-white/20 bg-white/10 px-5 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/20"
-                >
-                  Close
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-full bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submitting ? 'Publishing...' : 'Create Article'}
-                </button>
-              </div>
-            </form>
+      <PostComposerModal
+        open={!embeddedMode && showCreateModal}
+        modalTitle="Create a new article"
+        modalSubtitle="Publish official long-form content for your team."
+        onSubmit={handleCreateArticle}
+        titleValue={title}
+        onTitleChange={setTitle}
+        titlePlaceholder="Article title"
+        bodyValue={body}
+        onBodyChange={setBody}
+        bodyPlaceholder="Write article content..."
+        bodyMinHeightClassName="min-h-[200px]"
+        extraFields={(
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-200">Type</label>
+            <select
+              value={articleType}
+              onChange={(e) => setArticleType(Number(e.target.value))}
+              className="w-full rounded-full border border-white/15 bg-black/20 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
+            >
+              {ARTICLE_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-[#111821] text-slate-100">
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
-      ) : null}
+        )}
+        tags={articleTags}
+        onRemoveTag={removeTag}
+        tagInput={tagInput}
+        onTagInputChange={(value) => {
+          setTagError('');
+          setTagInput(normalizeTagName(value));
+        }}
+        onTagKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+            e.preventDefault();
+            addTag(tagInput);
+          }
+        }}
+        tagSuggestions={tagSuggestions}
+        searchingTags={searchingTags}
+        onAddTag={addTag}
+        tagError={tagError}
+        formError={formError}
+        isSubmitting={submitting}
+        submitLabel="Create Article"
+        submittingLabel="Publishing..."
+        cancelLabel="Close"
+        onClose={() => {
+          setShowCreateModal(false);
+          resetCreateForm();
+        }}
+        submitButtonClassName="rounded-full bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+        closeButtonClassName="rounded-full border border-white/0 bg-white/10 px-5 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/20"
+      />
     </div>
   );
 }
