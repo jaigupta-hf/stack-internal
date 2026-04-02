@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { collectionService, commentService, postService, voteService } from '../../services/api';
 import QuestionTab from './QuestionTab';
 import ArticlesTab from './ArticlesTab';
+import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
 
 const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata',
@@ -1045,8 +1046,8 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   };
 
   const collectionCommentData = selectedCollection
-    ? getCommentDataForTarget(selectedCollection.comments)
-    : { roots: [], repliesByParentId: {}, orphanRepliesByMissingParent: {} };
+    ? buildCommentData(selectedCollection.comments)
+    : EMPTY_COMMENT_DATA;
 
   return (
     /* Collection tab header */
@@ -1165,119 +1166,60 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
                     </p>
                   </div>
 
-                  {/* Collection comments section */ }
-                  <div className="mt-3 max-w-xl">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                        Comments ({(selectedCollection.comments || []).length})
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => toggleCommentSection('collection', selectedCollection.id)}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                        aria-label="Toggle comments"
-                      >
-                        {collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)] ? (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                            <path d="m6 10 6 6 6-6" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                            <path d="m6 14 6-6 6 6" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
+                  <CommentSection
+                    targetType="collection"
+                    targetId={selectedCollection.id}
+                    commentsCount={(selectedCollection.comments || []).length}
+                    commentData={collectionCommentData}
+                    collapsed={Boolean(collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)])}
+                    onToggleCollapsed={() => toggleCommentSection('collection', selectedCollection.id)}
+                    draftValue={commentDrafts[buildCommentKey('collection', selectedCollection.id)] || ''}
+                    onDraftChange={(value) => handleCommentDraftChange('collection', selectedCollection.id, value)}
+                    onAddComment={() => handleAddComment('collection', selectedCollection.id)}
+                    errorMessage={commentErrors[buildCommentKey('collection', selectedCollection.id)]}
+                    showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('collection', selectedCollection.id)])}
+                    onShowDeletedTree={() =>
+                      setShowDeletedTrees((prev) => ({
+                        ...prev,
+                        [buildCommentKey('collection', selectedCollection.id)]: true,
+                      }))
+                    }
+                    activeCommentMenuKey={activeCommentMenuKey}
+                    editingCommentKey={editingCommentKey}
+                    editingCommentBody={editingCommentBody}
+                    onEditingCommentBodyChange={setEditingCommentBody}
+                    replyDrafts={replyDrafts}
+                    activeReplyComposerKey={activeReplyComposerKey}
+                    onToggleCommentMenu={toggleCommentMenu}
+                    onToggleReplyComposer={toggleReplyComposer}
+                    onReplyDraftChange={handleReplyDraftChange}
+                    onSaveCommentEdit={handleSaveCommentEdit}
+                    onStartCommentEdit={handleStartCommentEdit}
+                    onDeleteComment={handleDeleteComment}
+                    onCommentUpvote={handleCommentUpvote}
+                    onAddReply={handleAddReply}
+                    onCancelCommentEdit={() => {
+                      setEditingCommentKey('');
+                      setEditingCommentBody('');
+                    }}
+                    onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                    onOpenUserProfile={onOpenUserProfile}
+                    formatTime={formatCollectionTime}
+                    getCommentKey={buildCommentKey}
+                    getCommentItemKey={buildCommentItemKey}
+                  />
 
-                    {!collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)] ? (
-                    collectionCommentData.roots.length > 0 ? (
-                      <ul className="mt-2 space-y-1.5">
-                        {collectionCommentData.roots.map((comment) =>
-                          renderCommentNode({
-                            targetType: 'collection',
-                            targetId: selectedCollection.id,
-                            comment,
-                            depth: 0,
-                            repliesByParentId: collectionCommentData.repliesByParentId,
-                          })
-                        )}
-                      </ul>
-                    ) : (null)
-                    ) : null}
+                  {collectionVoteError ? (
+                    <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
+                      {collectionVoteError}
+                    </p>
+                  ) : null}
 
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={commentDrafts[buildCommentKey('collection', selectedCollection.id)] || ''}
-                        onChange={(e) => handleCommentDraftChange('collection', selectedCollection.id, e.target.value)}
-                        maxLength={280}
-                        className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                        placeholder="Add a short comment"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleAddComment('collection', selectedCollection.id)}
-                        className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                      >
-                        Add
-                      </button>
-                    </div>
-
-                    {commentErrors[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                        {commentErrors[buildCommentKey('collection', selectedCollection.id)]}
-                      </p>
-                    ) : null}
-
-                    {Object.keys(collectionCommentData.orphanRepliesByMissingParent).length > 0 &&
-                    !showDeletedTrees[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowDeletedTrees((prev) => ({
-                            ...prev,
-                            [buildCommentKey('collection', selectedCollection.id)]: true,
-                          }))
-                        }
-                        className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                      >
-                        show more comments
-                      </button>
-                    ) : null}
-
-                    {showDeletedTrees[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <ul className="mt-2 space-y-1.5">
-                        {Object.entries(collectionCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                          <li key={`deleted-collection-${selectedCollection.id}-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                            <p className="text-xs text-slate-500 italic">deleted</p>
-                            <ul className="mt-1 ml-3 space-y-1.5">
-                              {replies.map((reply) =>
-                                renderCommentNode({
-                                  targetType: 'collection',
-                                  targetId: selectedCollection.id,
-                                  comment: reply,
-                                  depth: 1,
-                                  repliesByParentId: collectionCommentData.repliesByParentId,
-                                })
-                              )}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-
-                    {collectionVoteError ? (
-                      <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                        {collectionVoteError}
-                      </p>
-                    ) : null}
-
-                    {collectionBookmarkError ? (
+                  {collectionBookmarkError ? (
                       <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
                         {collectionBookmarkError}
                       </p>
                     ) : null}
-                  </div>
                 </div>
               </div>
             ) : (

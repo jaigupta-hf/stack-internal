@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, teamService, voteService } from '../../services/api';
+import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
 
 const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata',
@@ -2105,8 +2106,8 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   };
 
   const questionCommentData = selectedQuestion
-    ? getCommentDataForTarget('question', selectedQuestion.id, selectedQuestion.comments)
-    : { roots: [], repliesByParentId: {}, orphanRepliesByMissingParent: {} };
+    ? buildCommentData(selectedQuestion.comments)
+    : EMPTY_COMMENT_DATA;
   const sortedAnswers = selectedQuestion?.answers
     ? (() => {
         const approvedAnswerId = selectedQuestion.approved_answer;
@@ -3353,107 +3354,48 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                       </div>
                     </div>
                     
-                    {/* Question comments section */ }
-                    <div className="mt-3 max-w-xl">
-                        <div className="flex items-center gap-2">
-                            <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                            Comments ({(selectedQuestion.comments || []).length})
-                            </p>
-                            <button
-                            type="button"
-                            onClick={() => toggleCommentSection('question', selectedQuestion.id)}
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                            aria-label="Toggle comments"
-                            >
-                            {collapsedCommentSections[buildCommentKey('question', selectedQuestion.id)] ? (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                <path d="m6 10 6 6 6-6" />
-                              </svg>
-                            ) : (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                <path d="m6 14 6-6 6 6" />
-                              </svg>
-                            )}
-                            </button>
-                        </div>
-
-                        {!collapsedCommentSections[buildCommentKey('question', selectedQuestion.id)] ? (
-                            questionCommentData.roots.length > 0 ? (
-                            <ul className="mt-2 space-y-1.5">
-                                {questionCommentData.roots.map((comment) =>
-                                renderCommentNode({
-                                    targetType: 'question',
-                                    targetId: selectedQuestion.id,
-                                    comment,
-                                    depth: 0,
-                                    repliesByParentId: questionCommentData.repliesByParentId,
-                                })
-                                )}
-                            </ul>
-                            ) : (null)
-                        ) : null}
-
-                        <div className="mt-2.5 flex items-center gap-2">
-                            <input
-                            type="text"
-                            value={commentDrafts[buildCommentKey('question', selectedQuestion.id)] || ''}
-                            onChange={(e) => handleCommentDraftChange('question', selectedQuestion.id, e.target.value)}
-                            maxLength={280}
-                            className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                            placeholder="Add a short comment"
-                            />
-                            <button
-                            type="button"
-                            onClick={() => handleAddComment('question', selectedQuestion.id, selectedQuestion.id)}
-                            className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                            >
-                            Add
-                            </button>
-                        </div>
-
-                        {commentErrors[buildCommentKey('question', selectedQuestion.id)] ? (
-                            <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                            {commentErrors[buildCommentKey('question', selectedQuestion.id)]}
-                            </p>
-                        ) : null}
-
-                        {Object.keys(questionCommentData.orphanRepliesByMissingParent).length > 0 &&
-                        !showDeletedTrees[buildCommentKey('question', selectedQuestion.id)] ? (
-                            <button
-                            type="button"
-                            onClick={() =>
-                                setShowDeletedTrees((prev) => ({
-                                ...prev,
-                                [buildCommentKey('question', selectedQuestion.id)]: true,
-                                }))
-                            }
-                            className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                            >
-                            show more comments
-                            </button>
-                        ) : null}
-
-                        {showDeletedTrees[buildCommentKey('question', selectedQuestion.id)] ? (
-                            <ul className="mt-2 space-y-1.5">
-                            {Object.entries(questionCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                                <li key={`deleted-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                                <p className="text-xs text-slate-500 italic">deleted</p>
-                                <ul className="mt-1 ml-3 space-y-1.5">
-                                    {replies.map((reply) =>
-                                    renderCommentNode({
-                                        targetType: 'question',
-                                        targetId: selectedQuestion.id,
-                                        comment: reply,
-                                        depth: 1,
-                                        repliesByParentId: questionCommentData.repliesByParentId,
-                                    })
-                                    )}
-                                </ul>
-                                </li>
-                            ))}
-                            </ul>
-                        ) : null}
-                        </div>
+                    <CommentSection
+                      targetType="question"
+                      targetId={selectedQuestion.id}
+                      commentsCount={(selectedQuestion.comments || []).length}
+                      commentData={questionCommentData}
+                      collapsed={Boolean(collapsedCommentSections[buildCommentKey('question', selectedQuestion.id)])}
+                      onToggleCollapsed={() => toggleCommentSection('question', selectedQuestion.id)}
+                      draftValue={commentDrafts[buildCommentKey('question', selectedQuestion.id)] || ''}
+                      onDraftChange={(value) => handleCommentDraftChange('question', selectedQuestion.id, value)}
+                      onAddComment={() => handleAddComment('question', selectedQuestion.id, selectedQuestion.id)}
+                      errorMessage={commentErrors[buildCommentKey('question', selectedQuestion.id)]}
+                      showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('question', selectedQuestion.id)])}
+                      onShowDeletedTree={() =>
+                        setShowDeletedTrees((prev) => ({
+                          ...prev,
+                          [buildCommentKey('question', selectedQuestion.id)]: true,
+                        }))
+                      }
+                      activeCommentMenuKey={activeCommentMenuKey}
+                      editingCommentKey={editingCommentKey}
+                      editingCommentBody={editingCommentBody}
+                      onEditingCommentBodyChange={setEditingCommentBody}
+                      replyDrafts={replyDrafts}
+                      activeReplyComposerKey={activeReplyComposerKey}
+                      onToggleCommentMenu={toggleCommentMenu}
+                      onToggleReplyComposer={toggleReplyComposer}
+                      onReplyDraftChange={handleReplyDraftChange}
+                      onSaveCommentEdit={handleSaveCommentEdit}
+                      onStartCommentEdit={handleStartCommentEdit}
+                      onDeleteComment={handleDeleteComment}
+                      onCommentUpvote={handleCommentUpvote}
+                      onAddReply={handleAddReply}
+                      onCancelCommentEdit={() => {
+                        setEditingCommentKey('');
+                        setEditingCommentBody('');
+                      }}
+                      onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                      onOpenUserProfile={onOpenUserProfile}
+                      formatTime={formatQuestionTime}
+                      getCommentKey={buildCommentKey}
+                      getCommentItemKey={buildCommentItemKey}
+                    />
                   </div>
                 </div>
 
@@ -3482,7 +3424,7 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                         const edited = isActuallyEdited(answer.created_at, answer.modified_at);
                         const editedByUsername = answer.edited_by_username || answer.user_name;
                         const showEditedByName = edited && editedByUsername && editedByUsername !== answer.user_name;
-                        const answerCommentData = getCommentDataForTarget('answer', answer.id, answer.comments);
+                        const answerCommentData = buildCommentData(answer.comments);
                         const isAnswerDeleted = Boolean(answer.delete_flag);
                         const disableAnswerVoting = Boolean(selectedQuestion.delete_flag || isAnswerDeleted);
                         const disableApprove = Boolean(!selectedQuestion.can_approve_answers || selectedQuestion.delete_flag || isAnswerDeleted);
@@ -3706,107 +3648,49 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                                         </div>
                                     </div>
 
-                                    {/* Answer comments section */ }
-                                    <div className="mt-3 max-w-lg">
-                                      <div className="flex items-center gap-2">
-                                        <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                                          Comments ({(answer.comments || []).length})
-                                        </p>
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleCommentSection('answer', answer.id)}
-                                          className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                                          aria-label="Toggle comments"
-                                        >
-                                          {collapsedCommentSections[buildCommentKey('answer', answer.id)] ? (
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                              <path d="m6 10 6 6 6-6" />
-                                            </svg>
-                                          ) : (
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                                              <path d="m6 14 6-6 6 6" />
-                                            </svg>
-                                          )}
-                                        </button>
-                                      </div>
-
-                                      {!collapsedCommentSections[buildCommentKey('answer', answer.id)] ? (
-                                        answerCommentData.roots.length > 0 ? (
-                                          <ul className="mt-2 space-y-1.5">
-                                            {answerCommentData.roots.map((comment) =>
-                                              renderCommentNode({
-                                                targetType: 'answer',
-                                                targetId: answer.id,
-                                                comment,
-                                                depth: 0,
-                                                repliesByParentId: answerCommentData.repliesByParentId,
-                                              })
-                                            )}
-                                          </ul>
-                                        ) : ( null )
-                                      ) : null}
-
-                                      <div className="mt-2.5 flex items-center gap-2">
-                                        <input
-                                          type="text"
-                                          value={commentDrafts[buildCommentKey('answer', answer.id)] || ''}
-                                          onChange={(e) => handleCommentDraftChange('answer', answer.id, e.target.value)}
-                                          maxLength={280}
-                                          className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                                          placeholder="Add a short comment"
-                                        />
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAddComment('answer', answer.id, answer.id)}
-                                          className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                                        >
-                                          Add
-                                        </button>
-                                      </div>
-
-                                      {commentErrors[buildCommentKey('answer', answer.id)] ? (
-                                        <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                                          {commentErrors[buildCommentKey('answer', answer.id)]}
-                                        </p>
-                                      ) : null}
-
-                                      {Object.keys(answerCommentData.orphanRepliesByMissingParent).length > 0 &&
-                                      !showDeletedTrees[buildCommentKey('answer', answer.id)] ? (
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setShowDeletedTrees((prev) => ({
-                                              ...prev,
-                                              [buildCommentKey('answer', answer.id)]: true,
-                                            }))
-                                          }
-                                          className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                                        >
-                                          show more comments
-                                        </button>
-                                      ) : null}
-
-                                      {showDeletedTrees[buildCommentKey('answer', answer.id)] ? (
-                                        <ul className="mt-2 space-y-1.5">
-                                          {Object.entries(answerCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                                            <li key={`deleted-answer-${answer.id}-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                                              <p className="text-xs text-slate-500 italic">deleted</p>
-                                              <ul className="mt-1 ml-3 space-y-1.5">
-                                                {replies.map((reply) =>
-                                                  renderCommentNode({
-                                                    targetType: 'answer',
-                                                    targetId: answer.id,
-                                                    comment: reply,
-                                                    depth: 1,
-                                                    repliesByParentId: answerCommentData.repliesByParentId,
-                                                  })
-                                                )}
-                                              </ul>
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      ) : null}
-                                    </div>
+                                    <CommentSection
+                                      targetType="answer"
+                                      targetId={answer.id}
+                                      commentsCount={(answer.comments || []).length}
+                                      commentData={answerCommentData}
+                                      collapsed={Boolean(collapsedCommentSections[buildCommentKey('answer', answer.id)])}
+                                      onToggleCollapsed={() => toggleCommentSection('answer', answer.id)}
+                                      draftValue={commentDrafts[buildCommentKey('answer', answer.id)] || ''}
+                                      onDraftChange={(value) => handleCommentDraftChange('answer', answer.id, value)}
+                                      onAddComment={() => handleAddComment('answer', answer.id, answer.id)}
+                                      errorMessage={commentErrors[buildCommentKey('answer', answer.id)]}
+                                      showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('answer', answer.id)])}
+                                      onShowDeletedTree={() =>
+                                        setShowDeletedTrees((prev) => ({
+                                          ...prev,
+                                          [buildCommentKey('answer', answer.id)]: true,
+                                        }))
+                                      }
+                                      activeCommentMenuKey={activeCommentMenuKey}
+                                      editingCommentKey={editingCommentKey}
+                                      editingCommentBody={editingCommentBody}
+                                      onEditingCommentBodyChange={setEditingCommentBody}
+                                      replyDrafts={replyDrafts}
+                                      activeReplyComposerKey={activeReplyComposerKey}
+                                      onToggleCommentMenu={toggleCommentMenu}
+                                      onToggleReplyComposer={toggleReplyComposer}
+                                      onReplyDraftChange={handleReplyDraftChange}
+                                      onSaveCommentEdit={handleSaveCommentEdit}
+                                      onStartCommentEdit={handleStartCommentEdit}
+                                      onDeleteComment={handleDeleteComment}
+                                      onCommentUpvote={handleCommentUpvote}
+                                      onAddReply={handleAddReply}
+                                      onCancelCommentEdit={() => {
+                                        setEditingCommentKey('');
+                                        setEditingCommentBody('');
+                                      }}
+                                      onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                                      onOpenUserProfile={onOpenUserProfile}
+                                      formatTime={formatQuestionTime}
+                                      getCommentKey={buildCommentKey}
+                                      getCommentItemKey={buildCommentItemKey}
+                                      containerClassName="mt-3 max-w-lg"
+                                    />
                                     <div className="mt-3 border-t border-white/15" />
                                   </>
                                 )}
