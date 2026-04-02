@@ -9,4 +9,5 @@ urlpatterns = [
     path('api/tags/', include('tags.urls')),
     path('api/comments/', include('comments.urls')),
     path('api/collections/', include('apps.collections.urls')),
+    path('api/votes/', include('votes.urls')),
 ]

@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'tags',
     'comments',
     'apps.collections',
+    'votes',
 ]
 
 MIDDLEWARE = [
