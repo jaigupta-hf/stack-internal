@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { authService } from '../services/api';
-import { formatProfileTime } from './profileTabs/utils';
+import { formatProfileTime } from '../utils/dateTime';
 import PostsTab from './profileTabs/tabs/PostsTab';
 import TagsTab from './profileTabs/tabs/TagsTab';
 import FollowingTab from './profileTabs/tabs/FollowingTab';
