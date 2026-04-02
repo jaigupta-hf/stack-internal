@@ -31,6 +31,8 @@ INSTALLED_APPS = [
 
     'users',
     'teams',
+    'posts',
+    'apps.collections',
 ]
 
 MIDDLEWARE = [
