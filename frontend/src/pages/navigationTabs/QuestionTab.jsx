@@ -10,6 +10,7 @@ import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
+import useEntityIdInUrl from '../../hooks/useEntityIdInUrl';
 
 const formatQuestionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -141,6 +142,10 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [selectedBountyReason, setSelectedBountyReason] = useState(BOUNTY_REASONS[0].title);
   const [offeringBounty, setOfferingBounty] = useState(false);
   const [awardingBountyAnswerId, setAwardingBountyAnswerId] = useState(null);
+  const {
+    getEntityIdFromUrl: getQuestionIdFromUrl,
+    setEntityIdInUrl: setQuestionIdInUrl,
+  } = useEntityIdInUrl('question');
 
   const loadQuestions = async () => {
     setLoadingQuestions(true);
@@ -952,33 +957,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
       </li>
     );
   };
-
-  const getQuestionIdFromUrl = useCallback(() => {
-    const value = new URLSearchParams(window.location.search).get('question');
-    if (!value) {
-      return null;
-    }
-
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-  }, []);
-
-  const setQuestionIdInUrl = useCallback((questionId, replace = false) => {
-    const url = new URL(window.location.href);
-    if (questionId) {
-      url.searchParams.set('question', String(questionId));
-    } else {
-      url.searchParams.delete('question');
-    }
-
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
-  }, []);
 
   useEffect(() => {
     if (!isEditingQuestion) {
