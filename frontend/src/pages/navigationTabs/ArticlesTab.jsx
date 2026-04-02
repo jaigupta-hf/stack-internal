@@ -4,6 +4,7 @@ import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../comp
 import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
+import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
 
 const ARTICLE_TYPE_OPTIONS = [
   { label: 'Knowledge article', value: 22 },
@@ -12,137 +13,9 @@ const ARTICLE_TYPE_OPTIONS = [
   { label: 'Policy', value: 23 },
 ];
 
-const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  day: 'numeric',
-});
+const formatArticleTime = (timestamp) => formatRelativeTimestamp(timestamp, { dateOnlyAfterDay: true });
 
-const istMonthFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  month: 'long',
-});
-
-const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-const getOrdinal = (day) => {
-  if (day >= 11 && day <= 13) {
-    return `${day}th`;
-  }
-
-  const lastDigit = day % 10;
-  if (lastDigit === 1) {
-    return `${day}st`;
-  }
-  if (lastDigit === 2) {
-    return `${day}nd`;
-  }
-  if (lastDigit === 3) {
-    return `${day}rd`;
-  }
-  return `${day}th`;
-};
-
-const formatArticleTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  return created.toLocaleDateString();
-};
-
-const formatArticleListTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  const day = Number(istDayFormatter.format(created));
-  const month = istMonthFormatter.format(created).toLowerCase();
-  const time = istTimeFormatter.format(created);
-  return `${getOrdinal(day)} ${month} at ${time}`;
-};
-
-const formatVerboseRelativeTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const dayMs = 24 * 60 * 60 * 1000;
-  const getIstDayStamp = (value) => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(value);
-
-    const year = Number(parts.find((part) => part.type === 'year')?.value);
-    const month = Number(parts.find((part) => part.type === 'month')?.value);
-    const day = Number(parts.find((part) => part.type === 'day')?.value);
-
-    return Date.UTC(year, month - 1, day);
-  };
-
-  const now = new Date();
-  const days = Math.floor((getIstDayStamp(now) - getIstDayStamp(created)) / dayMs);
-
-  if (days === 0) {
-    return 'today';
-  }
-
-  if (days < 30) {
-    return `${days} day${days === 1 ? '' : 's'} ago`;
-  }
-
-  const months = Math.floor(days / 30);
-  if (days < 365) {
-    return `${months} month${months === 1 ? '' : 's'} ago`;
-  }
-
-  const years = Math.floor(days / 365);
-  const remainingMonths = Math.floor((days % 365) / 30);
-
-  if (remainingMonths > 0) {
-    return `${years} year${years === 1 ? '' : 's'}, ${remainingMonths} month${remainingMonths === 1 ? '' : 's'} ago`;
-  }
-
-  return `${years} year${years === 1 ? '' : 's'} ago`;
-};
+const formatArticleListTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
 function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [openingArticle, setOpeningArticle] = useState(false);
