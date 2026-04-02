@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { tagService } from '../../services/api';
+import AsyncStateView from '../../components/AsyncStateView';
 
 const formatDate = (value) => {
   if (!value) {
@@ -70,21 +71,16 @@ function TagsTab({ team }) {
         />
       </div>
 
-      {error ? (
-        <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-          {error}
-        </p>
-      ) : null}
-
-      {loading ? <p className="mt-6 text-slate-300">Loading tags...</p> : null}
-
-      {!loading && visibleTags.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-          {searchQuery.trim() ? 'No tags match your search.' : 'No tags found for this team yet.'}
-        </div>
-      ) : null}
-
-      {!loading && visibleTags.length > 0 ? (
+      <AsyncStateView
+        loading={loading}
+        error={error}
+        isEmpty={visibleTags.length === 0}
+        loadingMessage="Loading tags..."
+        emptyMessage={searchQuery.trim() ? 'No tags match your search.' : 'No tags found for this team yet.'}
+        loadingClassName="mt-6 text-slate-300"
+        errorClassName="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200"
+        emptyClassName="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400"
+      >
         <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
           <table className="min-w-full table-fixed text-left text-sm text-slate-200">
             <colgroup>
@@ -137,7 +133,7 @@ function TagsTab({ team }) {
             </tbody>
           </table>
         </div>
-      ) : null}
+      </AsyncStateView>
     </div>
   );
 }
