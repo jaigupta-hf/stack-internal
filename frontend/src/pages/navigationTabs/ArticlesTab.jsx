@@ -83,33 +83,10 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [watchTagInput, setWatchTagInput] = useState('');
   const [ignoreTagInput, setIgnoreTagInput] = useState('');
   const [selectedArticleTagFilter, setSelectedArticleTagFilter] = useState('');
-
-  const getArticleIdFromUrl = useCallback(() => {
-    const value = new URLSearchParams(window.location.search).get('article');
-    if (!value) {
-      return null;
-    }
-
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-  }, []);
-
-  const setArticleIdInUrl = useCallback((articleId, replace = false) => {
-    const url = new URL(window.location.href);
-    if (articleId) {
-      url.searchParams.set('article', String(articleId));
-    } else {
-      url.searchParams.delete('article');
-    }
-
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
-  }, []);
+  const {
+    getEntityIdFromUrl: getArticleIdFromUrl,
+    setEntityIdInUrl: setArticleIdInUrl,
+  } = useEntityIdInUrl('article');
 
   useEffect(() => {
     const loadArticles = async () => {
