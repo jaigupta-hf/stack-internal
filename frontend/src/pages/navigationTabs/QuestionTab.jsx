@@ -3,6 +3,7 @@ import { commentService, postService, tagService, teamService, voteService } fro
 import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
+import PostComposerModal from '../../components/PostComposerModal';
 
 const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata',
@@ -2421,147 +2422,52 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
       ) : null}
 
       {/* Ask question modal */ }
-      {showAskModal && !embeddedMode ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-[2rem] border border-white/5 bg-[#111821] p-6 shadow-2xl shadow-black/50 sm:p-6">
-            <div className="mb-2 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-2xl font-semibold text-white">Ask a question</h3>
-              </div>
-            </div>
-
-            <form onSubmit={handleQuestionSubmit} className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Title</label>
-                <input
-                  type="text"
-                  value={questionTitle}
-                  onChange={(e) => setQuestionTitle(e.target.value)}
-                  className="w-full rounded-full border border-white/10 bg-black/20 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                  placeholder="What issue are you facing?"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">Body</label>
-                <textarea
-                  value={questionBody}
-                  onChange={(e) => setQuestionBody(e.target.value)}
-                  className="min-h-[180px] w-full rounded-3xl border border-white/10 bg-black/20 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                  placeholder="Describe your question with all relevant details..."
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-200">
-                  Tags <span className="text-slate-400">(max 5)</span>
-                </label>
-
-                  <div className="mb-0.5 flex flex-wrap gap-2">
-                    {questionTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-2 rounded-sm border border-cyan-300/0 bg-cyan-300/10 px-3 py-1 text-xs text-cyan-400"
-                      >
-                        {tag}
-                        <button
-                          type="button"
-                          onClick={() => removeTag(tag)}
-                          className="text-cyan-200 transition hover:text-white"
-                          aria-label={`Remove ${tag}`}
-                        >
-                          x
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => {
-                        setTagError('');
-                        setTagInput(sanitizeTagName(e.target.value));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
-                          e.preventDefault();
-                          addTag(tagInput);
-                        }
-                      }}
-                      className="w-full rounded-full border border-white/10 bg-black/25 px-4 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                      placeholder="Type a tag and press Space"
-                    />
-
-                    {(tagSuggestions.length > 0 || searchingTags) && tagInput.trim() ? (
-                      <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-white/15 bg-[#0f141c] shadow-lg shadow-black/40">
-                        {searchingTags ? (
-                          <p className="px-3 py-2 text-xs text-slate-400">Searching tags...</p>
-                        ) : (
-                          <ul className="max-h-48 overflow-y-auto py-1">
-                            {tagSuggestions.map((tag) => (
-                              <li key={tag.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => addTag(tag.name)}
-                                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"
-                                >
-                                  <span>{tag.name}</span>
-                                  <span className="text-xs text-slate-400">{(Number(tag.question_count || 0) + Number(tag.article_count || 0))} posts</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                
-              </div>
-
-              {tagError ? (
-                <p className="rounded-full border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-sm text-amber-200">
-                  {tagError}
-                </p>
-              ) : null}
-
-              {questionError ? (
-                <p className="rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-                  {questionError}
-                </p>
-              ) : null}
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="submit"
-                  disabled={submittingQuestion}
-                  className="rounded-full bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {submittingQuestion ? 'Posting...' : 'Post Question'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAskModal(false);
-                    setQuestionError('');
-                    setTagError('');
-                    setQuestionTags([]);
-                    setTagInput('');
-                    setTagSuggestions([]);
-                  }}
-                  className="rounded-full border border-white/0 bg-white/10 px-5 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/20"
-                >
-                  Cancel
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      ) : null}
+      <PostComposerModal
+        open={showAskModal && !embeddedMode}
+        modalTitle="Ask a question"
+        onSubmit={handleQuestionSubmit}
+        titleValue={questionTitle}
+        onTitleChange={setQuestionTitle}
+        titlePlaceholder="What issue are you facing?"
+        bodyValue={questionBody}
+        onBodyChange={setQuestionBody}
+        bodyPlaceholder="Describe your question with all relevant details..."
+        bodyMinHeightClassName="min-h-[180px]"
+        tags={questionTags}
+        onRemoveTag={removeTag}
+        tagInput={tagInput}
+        onTagInputChange={(value) => {
+          setTagError('');
+          setTagInput(sanitizeTagName(value));
+        }}
+        onTagKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+            e.preventDefault();
+            addTag(tagInput);
+          }
+        }}
+        tagSuggestions={tagSuggestions}
+        searchingTags={searchingTags}
+        onAddTag={addTag}
+        tagError={tagError}
+        formError={questionError}
+        isSubmitting={submittingQuestion}
+        submitLabel="Post Question"
+        submittingLabel="Posting..."
+        cancelLabel="Cancel"
+        onClose={() => {
+          setShowAskModal(false);
+          setQuestionError('');
+          setTagError('');
+          setQuestionTags([]);
+          setTagInput('');
+          setTagSuggestions([]);
+        }}
+        panelClassName="w-full max-w-2xl rounded-[2rem] border border-white/5 bg-[#111821] p-6 shadow-2xl shadow-black/50 sm:p-6"
+        fieldBorderClassName="border-white/10"
+        submitButtonClassName="rounded-full bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+        closeButtonClassName="rounded-full border border-white/0 bg-white/10 px-5 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/20"
+      />
 
       {/* Close question modal */ }
       {showCloseModal && selectedQuestion ? (
