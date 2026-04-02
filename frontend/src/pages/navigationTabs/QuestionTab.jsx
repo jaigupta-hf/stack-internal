@@ -11,6 +11,8 @@ import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
 import useEntityIdInUrl from '../../hooks/useEntityIdInUrl';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
+import useTagPreferences from '../../hooks/useTagPreferences';
 
 const formatQuestionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -121,13 +123,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [duplicateMatches, setDuplicateMatches] = useState([]);
   const [searchingDuplicate, setSearchingDuplicate] = useState(false);
   const [selectedDuplicate, setSelectedDuplicate] = useState(null);
-  const [tagPreferences, setTagPreferences] = useState([]);
-  const [loadingTagPreferences, setLoadingTagPreferences] = useState(false);
-  const [tagPreferenceError, setTagPreferenceError] = useState('');
-  const [updatingTagPreferenceKey, setUpdatingTagPreferenceKey] = useState('');
-  const [allTeamTags, setAllTeamTags] = useState([]);
-  const [watchTagInput, setWatchTagInput] = useState('');
-  const [ignoreTagInput, setIgnoreTagInput] = useState('');
   const [questionFilter, setQuestionFilter] = useState('newest');
   const [selectedTagFilter, setSelectedTagFilter] = useState('');
   const [teamMembers, setTeamMembers] = useState([]);
@@ -146,6 +141,24 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     getEntityIdFromUrl: getQuestionIdFromUrl,
     setEntityIdInUrl: setQuestionIdInUrl,
   } = useEntityIdInUrl('question');
+  const {
+    loadingTagPreferences,
+    tagPreferenceError,
+    updatingTagPreferenceKey,
+    watchTagInput,
+    setWatchTagInput,
+    ignoreTagInput,
+    setIgnoreTagInput,
+    watchingTags,
+    ignoredTags,
+    watchSuggestions,
+    ignoreSuggestions,
+    watchedTagIdSet,
+    watchedTagNameSet,
+    ignoredTagIdSet,
+    ignoredTagNameSet,
+    handleSetTagPreference,
+  } = useTagPreferences({ teamId: team?.id, clearPreferencesOnLoadError: false });
 
   const loadQuestions = async () => {
     setLoadingQuestions(true);
@@ -164,98 +177,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   useEffect(() => {
     loadQuestions();
   }, [team.id]);
-
-  const loadTagPreferences = useCallback(async () => {
-    if (!team?.id) {
-      setTagPreferences([]);
-      return;
-    }
-
-    setLoadingTagPreferences(true);
-    setTagPreferenceError('');
-
-    try {
-      const data = await tagService.listPreferences(team.id);
-      setTagPreferences(data || []);
-    } catch (err) {
-      setTagPreferenceError(err.response?.data?.error || 'Failed to load tag preferences.');
-    } finally {
-      setLoadingTagPreferences(false);
-    }
-  }, [team?.id]);
-
-  useEffect(() => {
-    loadTagPreferences();
-  }, [loadTagPreferences]);
-
-  useEffect(() => {
-    const loadAllTags = async () => {
-      if (!team?.id) {
-        setAllTeamTags([]);
-        return;
-      }
-
-      try {
-        const data = await tagService.listTags(team.id);
-        setAllTeamTags(data || []);
-      } catch {
-        setAllTeamTags([]);
-      }
-    };
-
-    loadAllTags();
-  }, [team?.id]);
-
-  const watchingTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_watching),
-    [tagPreferences],
-  );
-
-  const ignoredTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_ignored),
-    [tagPreferences],
-  );
-
-  const watchSuggestions = useMemo(() => {
-    const query = watchTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(watchingTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, watchingTags, watchTagInput]);
-
-  const ignoreSuggestions = useMemo(() => {
-    const query = ignoreTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(ignoredTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, ignoredTags, ignoreTagInput]);
-
-  const watchedTagIdSet = useMemo(
-    () => new Set(watchingTags.map((tag) => Number(tag.tag_id))),
-    [watchingTags],
-  );
-  const watchedTagNameSet = useMemo(
-    () => new Set(watchingTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [watchingTags],
-  );
-  const ignoredTagIdSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => Number(tag.tag_id))),
-    [ignoredTags],
-  );
-  const ignoredTagNameSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [ignoredTags],
-  );
 
   const visibleQuestions = useMemo(() => {
     let next = [...questions];
@@ -317,60 +238,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
         return a.name.localeCompare(b.name);
       });
   }, [questions]);
-
-  const upsertTagPreference = (updated) => {
-    setTagPreferences((prev) => {
-      const existing = (prev || []).find((item) => item.tag_id === updated.tag_id);
-      if (existing) {
-        return (prev || []).map((item) =>
-          item.tag_id === updated.tag_id
-            ? {
-                ...item,
-                tag_name: updated.tag_name || item.tag_name,
-                count: updated.count ?? item.count,
-                is_watching: updated.is_watching,
-                is_ignored: updated.is_ignored,
-              }
-            : item
-        );
-      }
-
-      return [
-        {
-          tag_id: updated.tag_id,
-          tag_name: updated.tag_name,
-          count: updated.count ?? 0,
-          is_watching: updated.is_watching,
-          is_ignored: updated.is_ignored,
-        },
-        ...(prev || []),
-      ];
-    });
-  };
-
-  const handleSetTagPreference = async ({ tagId, field, value }) => {
-    if (!team?.id) {
-      return;
-    }
-
-    const requestKey = `${field}:${tagId}`;
-    setUpdatingTagPreferenceKey(requestKey);
-    setTagPreferenceError('');
-
-    try {
-      const updated = await tagService.updatePreference({
-        teamId: team.id,
-        tagId,
-        field,
-        value,
-      });
-      upsertTagPreference(updated);
-    } catch (err) {
-      setTagPreferenceError(err.response?.data?.error || 'Failed to update tag preference.');
-    } finally {
-      setUpdatingTagPreferenceKey('');
-    }
-  };
 
   const resetQuestionDetailState = useCallback(() => {
     setIsEditingQuestion(false);

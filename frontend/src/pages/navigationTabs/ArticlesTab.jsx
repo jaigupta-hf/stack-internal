@@ -11,6 +11,8 @@ import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
 import useEntityIdInUrl from '../../hooks/useEntityIdInUrl';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
+import useTagPreferences from '../../hooks/useTagPreferences';
 
 const ARTICLE_TYPE_OPTIONS = [
   { label: 'Knowledge article', value: 22 },
@@ -62,18 +64,29 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tagPreferences, setTagPreferences] = useState([]);
-  const [loadingTagPreferences, setLoadingTagPreferences] = useState(false);
-  const [tagPreferenceError, setTagPreferenceError] = useState('');
-  const [updatingTagPreferenceKey, setUpdatingTagPreferenceKey] = useState('');
-  const [allTeamTags, setAllTeamTags] = useState([]);
-  const [watchTagInput, setWatchTagInput] = useState('');
-  const [ignoreTagInput, setIgnoreTagInput] = useState('');
   const [selectedArticleTagFilter, setSelectedArticleTagFilter] = useState('');
   const {
     getEntityIdFromUrl: getArticleIdFromUrl,
     setEntityIdInUrl: setArticleIdInUrl,
   } = useEntityIdInUrl('article');
+  const {
+    loadingTagPreferences,
+    tagPreferenceError,
+    updatingTagPreferenceKey,
+    watchTagInput,
+    setWatchTagInput,
+    ignoreTagInput,
+    setIgnoreTagInput,
+    watchingTags,
+    ignoredTags,
+    watchSuggestions,
+    ignoreSuggestions,
+    watchedTagIdSet,
+    watchedTagNameSet,
+    ignoredTagIdSet,
+    ignoredTagNameSet,
+    handleSetTagPreference,
+  } = useTagPreferences({ teamId: team?.id, clearPreferencesOnLoadError: true });
 
   useEffect(() => {
     const loadArticles = async () => {
@@ -92,48 +105,6 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
     loadArticles();
   }, [team.id]);
-
-  useEffect(() => {
-    const loadTagPreferences = async () => {
-      if (!team?.id) {
-        setTagPreferences([]);
-        return;
-      }
-
-      setLoadingTagPreferences(true);
-      setTagPreferenceError('');
-
-      try {
-        const data = await tagService.listPreferences(team.id);
-        setTagPreferences(data || []);
-      } catch (err) {
-        setTagPreferences([]);
-        setTagPreferenceError(err.response?.data?.error || 'Failed to load tag preferences.');
-      } finally {
-        setLoadingTagPreferences(false);
-      }
-    };
-
-    loadTagPreferences();
-  }, [team?.id]);
-
-  useEffect(() => {
-    const loadAllTags = async () => {
-      if (!team?.id) {
-        setAllTeamTags([]);
-        return;
-      }
-
-      try {
-        const data = await tagService.listTags(team.id);
-        setAllTeamTags(data || []);
-      } catch {
-        setAllTeamTags([]);
-      }
-    };
-
-    loadAllTags();
-  }, [team?.id]);
 
   useEffect(() => {
     setSelectedArticle(null);
@@ -342,60 +313,6 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     return map;
   }, []);
 
-  const watchingTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_watching),
-    [tagPreferences]
-  );
-
-  const ignoredTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_ignored),
-    [tagPreferences]
-  );
-
-  const watchSuggestions = useMemo(() => {
-    const query = watchTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(watchingTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, watchingTags, watchTagInput]);
-
-  const ignoreSuggestions = useMemo(() => {
-    const query = ignoreTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(ignoredTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, ignoredTags, ignoreTagInput]);
-
-  const watchedTagIdSet = useMemo(
-    () => new Set(watchingTags.map((tag) => Number(tag.tag_id))),
-    [watchingTags]
-  );
-
-  const watchedTagNameSet = useMemo(
-    () => new Set(watchingTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [watchingTags]
-  );
-
-  const ignoredTagIdSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => Number(tag.tag_id))),
-    [ignoredTags]
-  );
-
-  const ignoredTagNameSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [ignoredTags]
-  );
-
   const visibleArticles = useMemo(() => {
     if (!selectedArticleTagFilter) {
       return articles;
@@ -439,60 +356,6 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     setSelectedArticleTagFilter(tagName);
     if (selectedArticle) {
       handleBackToArticleList();
-    }
-  };
-
-  const upsertTagPreference = (updated) => {
-    setTagPreferences((prev) => {
-      const existing = (prev || []).find((item) => item.tag_id === updated.tag_id);
-      if (existing) {
-        return (prev || []).map((item) =>
-          item.tag_id === updated.tag_id
-            ? {
-                ...item,
-                tag_name: updated.tag_name || item.tag_name,
-                count: updated.count ?? item.count,
-                is_watching: updated.is_watching,
-                is_ignored: updated.is_ignored,
-              }
-            : item
-        );
-      }
-
-      return [
-        {
-          tag_id: updated.tag_id,
-          tag_name: updated.tag_name,
-          count: updated.count ?? 0,
-          is_watching: updated.is_watching,
-          is_ignored: updated.is_ignored,
-        },
-        ...(prev || []),
-      ];
-    });
-  };
-
-  const handleSetTagPreference = async ({ tagId, field, value }) => {
-    if (!team?.id) {
-      return;
-    }
-
-    const requestKey = `${field}:${tagId}`;
-    setUpdatingTagPreferenceKey(requestKey);
-    setTagPreferenceError('');
-
-    try {
-      const updated = await tagService.updatePreference({
-        teamId: team.id,
-        tagId,
-        field,
-        value,
-      });
-      upsertTagPreference(updated);
-    } catch (err) {
-      setTagPreferenceError(err.response?.data?.error || 'Failed to update tag preference.');
-    } finally {
-      setUpdatingTagPreferenceKey('');
     }
   };
 
