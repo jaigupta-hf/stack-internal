@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { reputationService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import { formatProfileClockTime, formatProfileDateHeader } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function getPointsClass(points) {
   if (points > 0) {
@@ -14,32 +15,22 @@ function getPointsClass(points) {
 }
 
 function ReputationTab({ team, profileUserId, onOpenReference }) {
-  const [groups, setGroups] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadReputationHistory = async () => {
-      if (!team?.id || !profileUserId) {
-        setGroups([]);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-      try {
-        const payload = await reputationService.listHistory(team.id, profileUserId);
-        setGroups(Array.isArray(payload?.groups) ? payload.groups : []);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load reputation history.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadReputationHistory();
+  const loadReputationHistory = useCallback(async () => {
+    const payload = await reputationService.listHistory(team?.id, profileUserId);
+    return Array.isArray(payload?.groups) ? payload.groups : [];
   }, [team?.id, profileUserId]);
+
+  const {
+    data: groups,
+    loading,
+    error,
+  } = useTeamResource({
+    enabled: Boolean(team?.id && profileUserId),
+    initialData: [],
+    loadResource: loadReputationHistory,
+    fallbackErrorMessage: 'Failed to load reputation history.',
+    dependencies: [team?.id, profileUserId],
+  });
 
   const totalPoints = useMemo(
     () => groups.reduce((sum, group) => sum + Number(group?.total_points || 0), 0),

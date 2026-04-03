@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { commentService, postService, tagService, teamService, voteService } from '../../services/api';
+import { postService, tagService, teamService, voteService } from '../../services/api';
 import CommentSection, {
   buildCommentData,
   EMPTY_COMMENT_DATA,
@@ -7,12 +7,14 @@ import CommentSection, {
   buildCommentItemKey,
 } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
+import ListingCard from '../../components/ListingCard';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
 import useEntityIdInUrl from '../../hooks/useEntityIdInUrl';
 import useCommentSectionState from '../../hooks/useCommentSectionState';
 import useTagPreferences from '../../hooks/useTagPreferences';
+import useThreadedComments from '../../hooks/useThreadedComments';
 
 const formatQuestionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -414,91 +416,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     }
   };
 
-  const handleCommentDraftChange = (targetType, targetId, value) => {
-    const key = buildCommentKey(targetType, targetId);
-    setCommentDrafts((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-    setCommentErrors((prev) => ({
-      ...prev,
-      [key]: '',
-    }));
-  };
-
-  const handleAddComment = async (targetType, targetId, postId) => {
-    if (!selectedQuestion) {
-      return;
-    }
-
-    const key = buildCommentKey(targetType, targetId);
-    const body = (commentDrafts[key] || '').trim();
-
-    if (!body) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: 'Comment cannot be empty.',
-      }));
-      return;
-    }
-
-    try {
-      const created = await commentService.createComment({
-        post_id: postId,
-        body,
-      });
-
-      setSelectedQuestion((prev) => {
-        if (!prev) {
-          return prev;
-        }
-
-        if (targetType === 'question') {
-          return {
-            ...prev,
-            comments: [...(prev.comments || []), created],
-          };
-        }
-
-        return {
-          ...prev,
-          answers: (prev.answers || []).map((answer) =>
-            answer.id === targetId
-              ? { ...answer, comments: [...(answer.comments || []), created] }
-              : answer
-          ),
-        };
-      });
-
-      setCommentDrafts((prev) => ({
-        ...prev,
-        [key]: '',
-      }));
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: '',
-      }));
-    } catch (err) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: err.response?.data?.error || 'Failed to add comment.',
-      }));
-    }
-  };
-
-  const toggleCommentSection = (targetType, targetId) => {
-    const key = buildCommentKey(targetType, targetId);
-    setCollapsedCommentSections((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-  };
-
-  const toggleCommentMenu = (targetType, targetId, commentId) => {
-    const itemKey = buildCommentItemKey(targetType, targetId, commentId);
-    setActiveCommentMenuKey((prev) => (prev === itemKey ? '' : itemKey));
-  };
-
   const updateCommentCollection = (targetType, targetId, updater) => {
     setSelectedQuestion((prev) => {
       if (!prev) {
@@ -521,313 +438,46 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     });
   };
 
-  const toggleReplyComposer = (itemKey) => {
-    setActiveReplyComposerKey((prev) => (prev === itemKey ? '' : itemKey));
-  };
-
-  const handleReplyDraftChange = (itemKey, value) => {
-    setReplyDrafts((prev) => ({
-      ...prev,
-      [itemKey]: value,
-    }));
-  };
-
-  const handleAddReply = async (targetType, targetId, parentItemKey, parentCommentId, depth) => {
-    if (depth >= 2) {
-      return;
-    }
-
-    const key = buildCommentKey(targetType, targetId);
-    const body = (replyDrafts[parentItemKey] || '').trim();
-
-    if (!body) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: 'Reply cannot be empty.',
-      }));
-      return;
-    }
-
-    try {
-      const created = await commentService.createComment({
-        parent_comment_id: parentCommentId,
-        body,
-      });
-
-      updateCommentCollection(targetType, targetId, (comments) => [...comments, created]);
-      setReplyDrafts((prev) => ({
-        ...prev,
-        [parentItemKey]: '',
-      }));
-      setActiveReplyComposerKey('');
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: '',
-      }));
-    } catch (err) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: err.response?.data?.error || 'Failed to add reply.',
-      }));
-    }
-  };
-
-  const handleStartCommentEdit = (targetType, targetId, comment) => {
-    setEditingCommentKey(buildCommentItemKey(targetType, targetId, comment.id));
-    setEditingCommentBody(comment.body || '');
-    setActiveCommentMenuKey('');
-    setCommentErrors((prev) => ({
-      ...prev,
-      [buildCommentKey(targetType, targetId)]: '',
-    }));
-  };
-
-  const handleSaveCommentEdit = async (targetType, targetId, commentId) => {
-    const key = buildCommentKey(targetType, targetId);
-    const nextBody = editingCommentBody.trim();
-
-    if (!nextBody) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: 'Comment cannot be empty.',
-      }));
-      return;
-    }
-
-    try {
-      const updated = await commentService.updateComment(commentId, { body: nextBody });
-
-      updateCommentCollection(targetType, targetId, (comments) =>
-        comments.map((comment) => (comment.id === commentId ? { ...comment, ...updated } : comment))
-      );
-
-      setEditingCommentKey('');
-      setEditingCommentBody('');
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: '',
-      }));
-    } catch (err) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: err.response?.data?.error || 'Failed to update comment.',
-      }));
-    }
-  };
-
-  const handleDeleteComment = async (targetType, targetId, commentId) => {
-    const key = buildCommentKey(targetType, targetId);
-
-    try {
-      await commentService.deleteComment(commentId);
-      updateCommentCollection(targetType, targetId, (comments) => comments.filter((comment) => comment.id !== commentId));
-      setActiveCommentMenuKey('');
-      if (editingCommentKey === buildCommentItemKey(targetType, targetId, commentId)) {
-        setEditingCommentKey('');
-        setEditingCommentBody('');
-      }
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: '',
-      }));
-    } catch (err) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: err.response?.data?.error || 'Failed to delete comment.',
-      }));
-    }
-  };
-
-  const handleCommentUpvote = async (targetType, targetId, commentId) => {
-    const key = buildCommentKey(targetType, targetId);
-    const comments =
+  const getQuestionTargetComments = useCallback(
+    (targetType, targetId) =>
       targetType === 'question'
         ? selectedQuestion?.comments || []
-        : (selectedQuestion?.answers || []).find((answer) => answer.id === targetId)?.comments || [];
-    const comment = comments.find((item) => item.id === commentId);
-    const currentVote = Number(comment?.current_user_vote || 0);
+        : (selectedQuestion?.answers || []).find((answer) => answer.id === targetId)?.comments || [],
+    [selectedQuestion],
+  );
 
-    try {
-      const result =
-        currentVote === 1
-          ? await voteService.removeVote({ commentId })
-          : await voteService.submitVote({ commentId, vote: 1 });
-
-      updateCommentCollection(targetType, targetId, (nextComments) =>
-        nextComments.map((item) =>
-          item.id === commentId
-            ? {
-                ...item,
-                vote_count: result.vote_count,
-                current_user_vote: result.vote,
-              }
-            : item
-        )
-      );
-
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: '',
-      }));
-    } catch (err) {
-      setCommentErrors((prev) => ({
-        ...prev,
-        [key]: err.response?.data?.error || 'Failed to vote on comment.',
-      }));
-    }
-  };
-
-  const renderCommentNode = ({ targetType, targetId, comment, depth, repliesByParentId = {} }) => {
-    const itemKey = buildCommentItemKey(targetType, targetId, comment.id);
-    const isEditing = editingCommentKey === itemKey;
-    const isMenuOpen = activeCommentMenuKey === itemKey;
-    const canReply = depth < 2;
-    const replies = repliesByParentId[comment.id] || [];
-
-    return (
-      <li key={comment.id} className="relative border-l-2 border-cyan-300/40 pl-2">
-        <div className="min-w-0">
-          {isEditing ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={editingCommentBody}
-                onChange={(e) => setEditingCommentBody(e.target.value)}
-                maxLength={280}
-                className="h-7 w-full rounded-full border border-white/15 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-              />
-              <button
-                type="button"
-                onClick={() => handleSaveCommentEdit(targetType, targetId, comment.id)}
-                className="rounded-full bg-cyan-400 px-2.5 py-1 text-[10px] font-semibold text-slate-950 transition hover:bg-cyan-300"
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingCommentKey('');
-                  setEditingCommentBody('');
-                }}
-                className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[10px] text-slate-300 transition hover:bg-white/15"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <>
-              <p className="mt-1 text-[11px] text-slate-400">
-                <button
-                  type="button"
-                  onClick={() => onOpenUserProfile?.(comment.user)}
-                  className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
-                >
-                  {comment.user_name || comment.username || 'User'}
-                </button>{' '}
-                commented {formatQuestionTime(comment.created_at)}
-              </p>
-              <p className="text-xs leading-5 text-slate-200 whitespace-pre-wrap">{comment.body}</p>
-              
-
-              <div className="mt-1.5 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCommentUpvote(targetType, targetId, comment.id)}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
-                    Number(comment.current_user_vote || 0) === 1
-                      ? 'border-cyan-300/70 bg-cyan-400/20 text-cyan-100 hover:bg-cyan-400/30'
-                      : 'border-white/20 bg-white/5 text-slate-300 hover:bg-white/15'
-                  }`}
-                >
-                  ^ {comment.vote_count || 0}
-                </button>
-
-                {canReply ? (
-                  <button
-                    type="button"
-                    onClick={() => toggleReplyComposer(itemKey)}
-                    className="rounded-full border border-white/20 bg-white/5 px-2 py-0.5 text-[10px] text-slate-300 transition hover:bg-white/15"
-                  >
-                    Reply
-                  </button>
-                ) : null}
-
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => toggleCommentMenu(targetType, targetId, comment.id)}
-                    className="rounded-full border border-white/20 bg-white/5 px-2 py-0.5 text-[10px] text-slate-300 transition hover:bg-white/15"
-                    aria-label="Comment actions"
-                  >
-                    ...
-                  </button>
-                  {isMenuOpen ? (
-                    <div className="absolute left-0 z-10 mt-1 w-24 overflow-hidden rounded-lg border border-white/15 bg-[#0f141c]">
-                      <button
-                        type="button"
-                        onClick={() => handleStartCommentEdit(targetType, targetId, comment)}
-                        className="block w-full px-2.5 py-1.5 text-left text-[11px] text-slate-200 transition hover:bg-white/10"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteComment(targetType, targetId, comment.id)}
-                        className="block w-full px-2.5 py-1.5 text-left text-[11px] text-rose-200 transition hover:bg-white/10"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              {canReply && activeReplyComposerKey === itemKey ? (
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={replyDrafts[itemKey] || ''}
-                    onChange={(e) => handleReplyDraftChange(itemKey, e.target.value)}
-                    maxLength={280}
-                    className="h-7 w-full rounded-full border border-white/15 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                    placeholder="Reply to this comment"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleAddReply(targetType, targetId, itemKey, comment.id, depth)}
-                    className="rounded-full bg-cyan-400 px-2.5 py-1 text-[10px] font-semibold text-slate-950 transition hover:bg-cyan-300"
-                  >
-                    Add
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveReplyComposerKey('')}
-                    className="rounded-full border border-white/20 bg-white/5 px-2.5 py-1 text-[10px] text-slate-300 transition hover:bg-white/15"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-
-        {replies.length > 0 ? (
-          <ul className="mt-2 ml-3 space-y-1.5">
-            {replies.map((reply) =>
-              renderCommentNode({
-                targetType,
-                targetId,
-                comment: reply,
-                depth: depth + 1,
-                repliesByParentId,
-              })
-            )}
-          </ul>
-        ) : null}
-      </li>
-    );
-  };
+  const {
+    handleCommentDraftChange,
+    handleAddComment,
+    toggleCommentSection,
+    toggleCommentMenu,
+    toggleReplyComposer,
+    handleReplyDraftChange,
+    handleAddReply,
+    handleStartCommentEdit,
+    handleSaveCommentEdit,
+    handleDeleteComment,
+    handleCommentUpvote,
+    cancelCommentEdit,
+    cancelReplyComposer,
+  } = useThreadedComments({
+    commentDrafts,
+    setCommentDrafts,
+    setCommentErrors,
+    setCollapsedCommentSections,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    setActiveReplyComposerKey,
+    updateCommentCollection,
+    getTargetComments: getQuestionTargetComments,
+    createCommentPayload: ({ postId, parentCommentId, body }) =>
+      parentCommentId ? { parent_comment_id: parentCommentId, body } : { post_id: postId, body },
+  });
 
   useEffect(() => {
     if (!isEditingQuestion) {
@@ -1964,118 +1614,110 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
                     return (
                   <li key={question.id}>
-                    <div className={`flex items-start gap-2 rounded-2xl border px-3 py-3 text-slate-100 ${
-                      hasWatchedTag
-                        ? 'border-slate-300/25 bg-slate-500/5'
-                        : 'border-white/10 bg-black/20'
-                    }`}>
-                      <VotePanel
-                        score={question.vote_count}
-                        currentVote={question.current_user_vote}
-                        onUpvote={() => handleListQuestionUpvote(question.id)}
-                        upvoteAriaLabel="Upvote question"
-                        showBookmark
-                        isBookmarked={Boolean(question.is_bookmarked)}
-                        onToggleBookmark={() => handleToggleQuestionBookmark(question.id)}
-                        bookmarkAriaLabel="Bookmark question"
-                        neutralButtonClassName="border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
-                      />
-
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="mb-2 flex items-center gap-2">
-                          <span
-                            className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
-                              question.approved_answer
-                              ? 'border-emerald-300/0 bg-emerald-400/20 text-emerald-300'
-                              : 'border-white/0 bg-white/10 text-slate-300'
-                            }`}
-                            >
-                            {question.answer_count || 0} answers
-                          </span>
-                          <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
-                            {question.views_count || 0} views
-                          </span>
-                            {question.closed_reason ? (
-                                <span className="rounded-full border border-rose-300/0 bg-rose-400/20 px-2.5 py-0.5 text-[11px] font-medium text-rose-200">
-                                  {getCloseReasonLabel(question.closed_reason)}
-                                </span>
-                              ) : null}
-                            {(question.bounty_amount || 0) > 0 ? (
-                            <span className="rounded-full border border-amber-300/0 bg-amber-400/20 px-2.5 py-0.5 text-[11px] font-medium text-amber-100">
-                              +{question.bounty_amount} bounty
-                            </span>
-                              ) : null}
-                        </div>
-                        <div className="flex items-start justify-between gap-4">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenQuestion(question.id)}
-                            className={`text-left font-medium hover:underline transition ${
-                              question.delete_flag
-                                ? 'text-rose-300 hover:text-rose-200'
-                                : hasIgnoredTag
-                                  ? 'text-slate-400 hover:text-slate-300'
-                                  : 'text-slate-100 hover:text-cyan-200'
-                            }`}
+                    <ListingCard
+                      highlighted={hasWatchedTag}
+                      score={question.vote_count}
+                      currentVote={question.current_user_vote}
+                      onUpvote={() => handleListQuestionUpvote(question.id)}
+                      upvoteAriaLabel="Upvote question"
+                      isBookmarked={Boolean(question.is_bookmarked)}
+                      onToggleBookmark={() => handleToggleQuestionBookmark(question.id)}
+                      bookmarkAriaLabel="Bookmark question"
+                      neutralButtonClassName="border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                            question.approved_answer
+                            ? 'border-emerald-300/0 bg-emerald-400/20 text-emerald-300'
+                            : 'border-white/0 bg-white/10 text-slate-300'
+                          }`}
                           >
-                            {question.title}
-                          </button>
-                        </div>
-                        <div className="flex items-start justify-between gap-4">
-                          <p
-                            className={`mt-1 text-sm ${question.delete_flag ? 'text-rose-300/80' : hasIgnoredTag ? 'text-slate-500' : 'text-slate-300'}`}
-                            style={{
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {question.body}
-                          </p>
-                        </div>
-
-                        <div className="mt-2 flex items-center justify-between gap-4">
-                          <div className="min-w-0 flex flex-wrap gap-2">
-                            {question.tags && question.tags.length > 0
-                              ? question.tags.map((tag) => (
-                                  <button
-                                    type="button"
-                                    key={tag.id || tag.name}
-                                    onClick={() => handleApplyTagFilter(tag.name || '')}
-                                    className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
-                                      question.delete_flag
-                                        ? 'border-rose-300/30 bg-rose-400/10 text-rose-200'
-                                        : hasIgnoredTag
-                                        ? 'border-white/10 bg-white/10 text-slate-400'
-                                        : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
-                                    }`}
-                                  >
-                                    {tag.name}
-                                  </button>
-                                ))
-                              : null}
-                          </div>
-                          <p className="shrink-0 text-right text-xs text-slate-400">
-                            <span>
-                              <button
-                                type="button"
-                                onClick={() => onOpenUserProfile?.(question.user_id)}
-                                className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
-                              >
-                                {question.user_name}
-                              </button>
-                              {question.user_is_admin ? (
-                                <span className="ml-1 rounded-full border border-amber-300/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-200">
-                                  Admin
-                                </span>
-                              ) : null}{' '}
-                              asked {formatQuestionTime(question.created_at)}
-                            </span>
-                          </p>
-                        </div>
+                          {question.answer_count || 0} answers
+                        </span>
+                        <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+                          {question.views_count || 0} views
+                        </span>
+                          {question.closed_reason ? (
+                              <span className="rounded-full border border-rose-300/0 bg-rose-400/20 px-2.5 py-0.5 text-[11px] font-medium text-rose-200">
+                                {getCloseReasonLabel(question.closed_reason)}
+                              </span>
+                            ) : null}
+                          {(question.bounty_amount || 0) > 0 ? (
+                          <span className="rounded-full border border-amber-300/0 bg-amber-400/20 px-2.5 py-0.5 text-[11px] font-medium text-amber-100">
+                            +{question.bounty_amount} bounty
+                          </span>
+                            ) : null}
                       </div>
-                    </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuestion(question.id)}
+                          className={`text-left font-medium hover:underline transition ${
+                            question.delete_flag
+                              ? 'text-rose-300 hover:text-rose-200'
+                              : hasIgnoredTag
+                                ? 'text-slate-400 hover:text-slate-300'
+                                : 'text-slate-100 hover:text-cyan-200'
+                          }`}
+                        >
+                          {question.title}
+                        </button>
+                      </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <p
+                          className={`mt-1 text-sm ${question.delete_flag ? 'text-rose-300/80' : hasIgnoredTag ? 'text-slate-500' : 'text-slate-300'}`}
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {question.body}
+                        </p>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex flex-wrap gap-2">
+                          {question.tags && question.tags.length > 0
+                            ? question.tags.map((tag) => (
+                                <button
+                                  type="button"
+                                  key={tag.id || tag.name}
+                                  onClick={() => handleApplyTagFilter(tag.name || '')}
+                                  className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
+                                    question.delete_flag
+                                      ? 'border-rose-300/30 bg-rose-400/10 text-rose-200'
+                                      : hasIgnoredTag
+                                      ? 'border-white/10 bg-white/10 text-slate-400'
+                                      : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
+                                  }`}
+                                >
+                                  {tag.name}
+                                </button>
+                              ))
+                            : null}
+                        </div>
+                        <p className="shrink-0 text-right text-xs text-slate-400">
+                          <span>
+                            <button
+                              type="button"
+                              onClick={() => onOpenUserProfile?.(question.user_id)}
+                              className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
+                            >
+                              {question.user_name}
+                            </button>
+                            {question.user_is_admin ? (
+                              <span className="ml-1 rounded-full border border-amber-300/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-200">
+                                Admin
+                              </span>
+                            ) : null}{' '}
+                            asked {formatQuestionTime(question.created_at)}
+                          </span>
+                        </p>
+                      </div>
+                    </ListingCard>
                   </li>
                     );
                   })()
@@ -2855,11 +2497,8 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                       onDeleteComment={handleDeleteComment}
                       onCommentUpvote={handleCommentUpvote}
                       onAddReply={handleAddReply}
-                      onCancelCommentEdit={() => {
-                        setEditingCommentKey('');
-                        setEditingCommentBody('');
-                      }}
-                      onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                      onCancelCommentEdit={cancelCommentEdit}
+                      onCancelReplyComposer={cancelReplyComposer}
                       onOpenUserProfile={onOpenUserProfile}
                       formatTime={formatQuestionTime}
                       getCommentKey={buildCommentKey}
@@ -3126,11 +2765,8 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
                                       onDeleteComment={handleDeleteComment}
                                       onCommentUpvote={handleCommentUpvote}
                                       onAddReply={handleAddReply}
-                                      onCancelCommentEdit={() => {
-                                        setEditingCommentKey('');
-                                        setEditingCommentBody('');
-                                      }}
-                                      onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                                      onCancelCommentEdit={cancelCommentEdit}
+                                      onCancelReplyComposer={cancelReplyComposer}
                                       onOpenUserProfile={onOpenUserProfile}
                                       formatTime={formatQuestionTime}
                                       getCommentKey={buildCommentKey}

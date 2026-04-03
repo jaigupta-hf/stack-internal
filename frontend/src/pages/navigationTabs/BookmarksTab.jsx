@@ -1,53 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-const formatBookmarkTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffHours < 24) {
-    const hours = Math.max(diffHours, 1);
-    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-};
+import { formatBookmarkTime } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
-  const [bookmarks, setBookmarks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadBookmarks = async () => {
-      if (!team?.id) {
-        setBookmarks([]);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const data = await postService.listBookmarks(team.id);
-        setBookmarks(data);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load bookmarks.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBookmarks();
+  const loadBookmarks = useCallback(async () => {
+    const data = await postService.listBookmarks(team?.id);
+    return Array.isArray(data) ? data : [];
   }, [team?.id]);
+
+  const {
+    data: bookmarks,
+    setData: setBookmarks,
+    loading,
+    error,
+    setError,
+  } = useTeamResource({
+    enabled: Boolean(team?.id),
+    initialData: [],
+    loadResource: loadBookmarks,
+    fallbackErrorMessage: 'Failed to load bookmarks.',
+    dependencies: [team?.id],
+  });
 
   const handleRemoveBookmark = async (item) => {
     try {
