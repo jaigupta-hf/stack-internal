@@ -27,61 +27,24 @@ const formatFeedTime = (value) => {
   return date.toLocaleString();
 };
 
-const reasonToActionText = (item) => {
-  if (item.reason === 'answer_posted_on_your_question') {
-    return 'answered your question';
-  }
-
-  if (item.reason === 'question_edited') {
-    return 'edited your question';
-  }
-
-  if (item.reason === 'question_deleted') {
-    return 'deleted your question';
-  }
-
-  if (item.reason === 'question_closed') {
-    return 'closed your question';
-  }
-
-  if (item.reason === 'question_commented') {
-    return 'commented on your question';
-  }
-
-  if (item.reason === 'your_answer_was_approved') {
-    return 'approved your answer';
-  }
-
-  if (item.reason === 'answer_edited') {
-    return 'edited your answer';
-  }
-
-  if (item.reason === 'answer_commented') {
-    return 'commented on your answer';
-  }
-
-  if (item.reason === 'comment_replied') {
-    return 'replied to your comment';
-  }
-
-  if (item.reason === 'mentioned_in_question') {
-    return 'mentioned you in a question';
-  }
-
-  if (item.reason === 'new_answer_on_followed_post') {
-    return 'posted a new answer on a question you follow';
-  }
-
-  if (item.reason === 'new_comment_on_followed_post') {
-    return 'commented on a question you follow';
-  }
-
-  if (item.reason === 'approved_answer_on_followed_post') {
-    return 'approved an answer on a question you follow';
-  }
-
-  return 'interacted with your post';
+const NOTIFICATION_REASON_ACTION_TEXT = {
+  answer_posted_on_your_question: 'answered your question',
+  question_edited: 'edited your question',
+  question_deleted: 'deleted your question',
+  question_closed: 'closed your question',
+  question_commented: 'commented on your question',
+  your_answer_was_approved: 'approved your answer',
+  answer_edited: 'edited your answer',
+  answer_commented: 'commented on your answer',
+  comment_replied: 'replied to your comment',
+  mentioned_in_question: 'mentioned you in a question',
+  new_answer_on_followed_post: 'posted a new answer on a question you follow',
+  new_comment_on_followed_post: 'commented on a question you follow',
+  approved_answer_on_followed_post: 'approved an answer on a question you follow',
 };
+
+const reasonToActionText = (item) =>
+  NOTIFICATION_REASON_ACTION_TEXT[item.reason] || 'interacted with your post';
 
 function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChange }) {
   const [items, setItems] = useState([]);
