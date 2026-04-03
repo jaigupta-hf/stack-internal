@@ -4,6 +4,11 @@ export const EMPTY_COMMENT_DATA = {
   orphanRepliesByMissingParent: {},
 };
 
+export const buildCommentKey = (targetType, targetId) => `${targetType}:${targetId}`;
+
+export const buildCommentItemKey = (targetType, targetId, commentId) =>
+  `${buildCommentKey(targetType, targetId)}:${commentId}`;
+
 export const buildCommentData = (serverComments) => {
   const comments = Array.isArray(serverComments) ? serverComments : [];
   const commentById = new Map(comments.map((comment) => [comment.id, comment]));
@@ -66,8 +71,7 @@ function CommentSection({
   getCommentItemKey,
   containerClassName = 'mt-3 max-w-xl',
 }) {
-  const commentItemKeyBuilder =
-    getCommentItemKey || ((type, id, commentId) => `${type}:${id}:${commentId}`);
+  const commentItemKeyBuilder = getCommentItemKey || buildCommentItemKey;
 
   const renderCommentNode = (comment, depth, repliesByParentId) => {
     const itemKey = commentItemKeyBuilder(targetType, targetId, comment.id);

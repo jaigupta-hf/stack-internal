@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { tagService } from '../../../services/api';
+import { tagService } from '../../services/api';
 
 function TagsTab({ tagUsages, canEdit, team }) {
   const [searchQuery, setSearchQuery] = useState('');

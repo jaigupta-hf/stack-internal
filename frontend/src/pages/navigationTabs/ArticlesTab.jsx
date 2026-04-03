@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, voteService } from '../../services/api';
-import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import CommentSection, {
+  buildCommentData,
+  EMPTY_COMMENT_DATA,
+  buildCommentKey,
+  buildCommentItemKey,
+} from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
+import useEntityIdInUrl from '../../hooks/useEntityIdInUrl';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
+import useTagPreferences from '../../hooks/useTagPreferences';
 
 const ARTICLE_TYPE_OPTIONS = [
   { label: 'Knowledge article', value: 22 },
@@ -21,15 +29,27 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [openingArticle, setOpeningArticle] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [articleVoteError, setArticleVoteError] = useState('');
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [title, setTitle] = useState('');
   const [articleType, setArticleType] = useState(22);
@@ -56,41 +76,29 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tagPreferences, setTagPreferences] = useState([]);
-  const [loadingTagPreferences, setLoadingTagPreferences] = useState(false);
-  const [tagPreferenceError, setTagPreferenceError] = useState('');
-  const [updatingTagPreferenceKey, setUpdatingTagPreferenceKey] = useState('');
-  const [allTeamTags, setAllTeamTags] = useState([]);
-  const [watchTagInput, setWatchTagInput] = useState('');
-  const [ignoreTagInput, setIgnoreTagInput] = useState('');
   const [selectedArticleTagFilter, setSelectedArticleTagFilter] = useState('');
-
-  const getArticleIdFromUrl = useCallback(() => {
-    const value = new URLSearchParams(window.location.search).get('article');
-    if (!value) {
-      return null;
-    }
-
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-  }, []);
-
-  const setArticleIdInUrl = useCallback((articleId, replace = false) => {
-    const url = new URL(window.location.href);
-    if (articleId) {
-      url.searchParams.set('article', String(articleId));
-    } else {
-      url.searchParams.delete('article');
-    }
-
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
-  }, []);
+  const {
+    getEntityIdFromUrl: getArticleIdFromUrl,
+    setEntityIdInUrl: setArticleIdInUrl,
+  } = useEntityIdInUrl('article');
+  const {
+    loadingTagPreferences,
+    tagPreferenceError,
+    updatingTagPreferenceKey,
+    watchTagInput,
+    setWatchTagInput,
+    ignoreTagInput,
+    setIgnoreTagInput,
+    watchingTags,
+    ignoredTags,
+    watchSuggestions,
+    ignoreSuggestions,
+    watchedTagIdSet,
+    watchedTagNameSet,
+    ignoredTagIdSet,
+    ignoredTagNameSet,
+    handleSetTagPreference,
+  } = useTagPreferences({ teamId: team?.id, clearPreferencesOnLoadError: true });
 
   useEffect(() => {
     const loadArticles = async () => {
@@ -111,63 +119,13 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
   }, [team.id]);
 
   useEffect(() => {
-    const loadTagPreferences = async () => {
-      if (!team?.id) {
-        setTagPreferences([]);
-        return;
-      }
-
-      setLoadingTagPreferences(true);
-      setTagPreferenceError('');
-
-      try {
-        const data = await tagService.listPreferences(team.id);
-        setTagPreferences(data || []);
-      } catch (err) {
-        setTagPreferences([]);
-        setTagPreferenceError(err.response?.data?.error || 'Failed to load tag preferences.');
-      } finally {
-        setLoadingTagPreferences(false);
-      }
-    };
-
-    loadTagPreferences();
-  }, [team?.id]);
-
-  useEffect(() => {
-    const loadAllTags = async () => {
-      if (!team?.id) {
-        setAllTeamTags([]);
-        return;
-      }
-
-      try {
-        const data = await tagService.listTags(team.id);
-        setAllTeamTags(data || []);
-      } catch {
-        setAllTeamTags([]);
-      }
-    };
-
-    loadAllTags();
-  }, [team?.id]);
-
-  useEffect(() => {
     setSelectedArticle(null);
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
     setArticleVoteError('');
     setIsEditingArticle(false);
     setEditError('');
     setEditTagError('');
-  }, [team.id]);
+  }, [team.id, resetCommentSectionState]);
 
   useEffect(() => {
     if (!showCreateModal) {
@@ -359,60 +317,6 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     return map;
   }, []);
 
-  const watchingTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_watching),
-    [tagPreferences]
-  );
-
-  const ignoredTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_ignored),
-    [tagPreferences]
-  );
-
-  const watchSuggestions = useMemo(() => {
-    const query = watchTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(watchingTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, watchingTags, watchTagInput]);
-
-  const ignoreSuggestions = useMemo(() => {
-    const query = ignoreTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(ignoredTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, ignoredTags, ignoreTagInput]);
-
-  const watchedTagIdSet = useMemo(
-    () => new Set(watchingTags.map((tag) => Number(tag.tag_id))),
-    [watchingTags]
-  );
-
-  const watchedTagNameSet = useMemo(
-    () => new Set(watchingTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [watchingTags]
-  );
-
-  const ignoredTagIdSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => Number(tag.tag_id))),
-    [ignoredTags]
-  );
-
-  const ignoredTagNameSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [ignoredTags]
-  );
-
   const visibleArticles = useMemo(() => {
     if (!selectedArticleTagFilter) {
       return articles;
@@ -456,60 +360,6 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     setSelectedArticleTagFilter(tagName);
     if (selectedArticle) {
       handleBackToArticleList();
-    }
-  };
-
-  const upsertTagPreference = (updated) => {
-    setTagPreferences((prev) => {
-      const existing = (prev || []).find((item) => item.tag_id === updated.tag_id);
-      if (existing) {
-        return (prev || []).map((item) =>
-          item.tag_id === updated.tag_id
-            ? {
-                ...item,
-                tag_name: updated.tag_name || item.tag_name,
-                count: updated.count ?? item.count,
-                is_watching: updated.is_watching,
-                is_ignored: updated.is_ignored,
-              }
-            : item
-        );
-      }
-
-      return [
-        {
-          tag_id: updated.tag_id,
-          tag_name: updated.tag_name,
-          count: updated.count ?? 0,
-          is_watching: updated.is_watching,
-          is_ignored: updated.is_ignored,
-        },
-        ...(prev || []),
-      ];
-    });
-  };
-
-  const handleSetTagPreference = async ({ tagId, field, value }) => {
-    if (!team?.id) {
-      return;
-    }
-
-    const requestKey = `${field}:${tagId}`;
-    setUpdatingTagPreferenceKey(requestKey);
-    setTagPreferenceError('');
-
-    try {
-      const updated = await tagService.updatePreference({
-        teamId: team.id,
-        tagId,
-        field,
-        value,
-      });
-      upsertTagPreference(updated);
-    } catch (err) {
-      setTagPreferenceError(err.response?.data?.error || 'Failed to update tag preference.');
-    } finally {
-      setUpdatingTagPreferenceKey('');
     }
   };
 
@@ -659,20 +509,12 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     }
 
     setSelectedArticle(null);
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
     setArticleVoteError('');
     setIsEditingArticle(false);
     setEditError('');
     setEditTagError('');
-  }, [getArticleIdFromUrl, setArticleIdInUrl]);
+  }, [getArticleIdFromUrl, setArticleIdInUrl, resetCommentSectionState]);
 
   useEffect(() => {
     const syncFromUrl = async () => {
@@ -681,15 +523,7 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
       if (!urlArticleId) {
         if (selectedArticle) {
           setSelectedArticle(null);
-          setCommentDrafts({});
-          setCommentErrors({});
-          setCollapsedCommentSections({});
-          setActiveCommentMenuKey('');
-          setEditingCommentKey('');
-          setEditingCommentBody('');
-          setReplyDrafts({});
-          setActiveReplyComposerKey('');
-          setShowDeletedTrees({});
+          resetCommentSectionState();
           setArticleVoteError('');
         }
         return;
@@ -710,7 +544,7 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, [team.id, selectedArticle, getArticleIdFromUrl, openArticle]);
+  }, [team.id, selectedArticle, getArticleIdFromUrl, openArticle, resetCommentSectionState]);
 
   const handleArticleUpvote = async () => {
     if (!selectedArticle) {
@@ -830,37 +664,6 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update bookmark.');
     }
-  };
-
-  const buildCommentKey = (targetType, targetId) => `${targetType}:${targetId}`;
-  const buildCommentItemKey = (targetType, targetId, commentId) => `${targetType}:${targetId}:${commentId}`;
-
-  const getCommentDataForTarget = (targetType, targetId, serverComments) => {
-    const comments = Array.isArray(serverComments) ? serverComments : [];
-    const commentById = new Map(comments.map((comment) => [comment.id, comment]));
-    const repliesByParentId = {};
-    const orphanRepliesByMissingParent = {};
-
-    comments.forEach((comment) => {
-      if (!comment.parent_comment) {
-        return;
-      }
-
-      if (commentById.has(comment.parent_comment)) {
-        const list = repliesByParentId[comment.parent_comment] || [];
-        repliesByParentId[comment.parent_comment] = [...list, comment];
-        return;
-      }
-
-      const orphanList = orphanRepliesByMissingParent[comment.parent_comment] || [];
-      orphanRepliesByMissingParent[comment.parent_comment] = [...orphanList, comment];
-    });
-
-    return {
-      roots: comments.filter((comment) => !comment.parent_comment),
-      repliesByParentId,
-      orphanRepliesByMissingParent,
-    };
   };
 
   const updateCommentCollection = (targetType, targetId, updater) => {

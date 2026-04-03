@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commentService, postService, tagService, teamService, voteService } from '../../services/api';
-import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import CommentSection, {
+  buildCommentData,
+  EMPTY_COMMENT_DATA,
+  buildCommentKey,
+  buildCommentItemKey,
+} from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
+import useEntityIdInUrl from '../../hooks/useEntityIdInUrl';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
+import useTagPreferences from '../../hooks/useTagPreferences';
 
 const formatQuestionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -95,15 +103,27 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [editAnswerBody, setEditAnswerBody] = useState('');
   const [editAnswerError, setEditAnswerError] = useState('');
   const [savingAnswerEdit, setSavingAnswerEdit] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
   const [voteError, setVoteError] = useState('');
   const [approvalError, setApprovalError] = useState('');
   const [showCloseModal, setShowCloseModal] = useState(false);
@@ -115,13 +135,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [duplicateMatches, setDuplicateMatches] = useState([]);
   const [searchingDuplicate, setSearchingDuplicate] = useState(false);
   const [selectedDuplicate, setSelectedDuplicate] = useState(null);
-  const [tagPreferences, setTagPreferences] = useState([]);
-  const [loadingTagPreferences, setLoadingTagPreferences] = useState(false);
-  const [tagPreferenceError, setTagPreferenceError] = useState('');
-  const [updatingTagPreferenceKey, setUpdatingTagPreferenceKey] = useState('');
-  const [allTeamTags, setAllTeamTags] = useState([]);
-  const [watchTagInput, setWatchTagInput] = useState('');
-  const [ignoreTagInput, setIgnoreTagInput] = useState('');
   const [questionFilter, setQuestionFilter] = useState('newest');
   const [selectedTagFilter, setSelectedTagFilter] = useState('');
   const [teamMembers, setTeamMembers] = useState([]);
@@ -136,6 +149,28 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   const [selectedBountyReason, setSelectedBountyReason] = useState(BOUNTY_REASONS[0].title);
   const [offeringBounty, setOfferingBounty] = useState(false);
   const [awardingBountyAnswerId, setAwardingBountyAnswerId] = useState(null);
+  const {
+    getEntityIdFromUrl: getQuestionIdFromUrl,
+    setEntityIdInUrl: setQuestionIdInUrl,
+  } = useEntityIdInUrl('question');
+  const {
+    loadingTagPreferences,
+    tagPreferenceError,
+    updatingTagPreferenceKey,
+    watchTagInput,
+    setWatchTagInput,
+    ignoreTagInput,
+    setIgnoreTagInput,
+    watchingTags,
+    ignoredTags,
+    watchSuggestions,
+    ignoreSuggestions,
+    watchedTagIdSet,
+    watchedTagNameSet,
+    ignoredTagIdSet,
+    ignoredTagNameSet,
+    handleSetTagPreference,
+  } = useTagPreferences({ teamId: team?.id, clearPreferencesOnLoadError: false });
 
   const loadQuestions = async () => {
     setLoadingQuestions(true);
@@ -154,98 +189,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
   useEffect(() => {
     loadQuestions();
   }, [team.id]);
-
-  const loadTagPreferences = useCallback(async () => {
-    if (!team?.id) {
-      setTagPreferences([]);
-      return;
-    }
-
-    setLoadingTagPreferences(true);
-    setTagPreferenceError('');
-
-    try {
-      const data = await tagService.listPreferences(team.id);
-      setTagPreferences(data || []);
-    } catch (err) {
-      setTagPreferenceError(err.response?.data?.error || 'Failed to load tag preferences.');
-    } finally {
-      setLoadingTagPreferences(false);
-    }
-  }, [team?.id]);
-
-  useEffect(() => {
-    loadTagPreferences();
-  }, [loadTagPreferences]);
-
-  useEffect(() => {
-    const loadAllTags = async () => {
-      if (!team?.id) {
-        setAllTeamTags([]);
-        return;
-      }
-
-      try {
-        const data = await tagService.listTags(team.id);
-        setAllTeamTags(data || []);
-      } catch {
-        setAllTeamTags([]);
-      }
-    };
-
-    loadAllTags();
-  }, [team?.id]);
-
-  const watchingTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_watching),
-    [tagPreferences],
-  );
-
-  const ignoredTags = useMemo(
-    () => (tagPreferences || []).filter((tag) => tag.is_ignored),
-    [tagPreferences],
-  );
-
-  const watchSuggestions = useMemo(() => {
-    const query = watchTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(watchingTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, watchingTags, watchTagInput]);
-
-  const ignoreSuggestions = useMemo(() => {
-    const query = ignoreTagInput.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-
-    const excluded = new Set(ignoredTags.map((tag) => tag.tag_id));
-    return (allTeamTags || [])
-      .filter((tag) => !excluded.has(tag.id) && (tag.name || '').toLowerCase().includes(query))
-      .slice(0, 8);
-  }, [allTeamTags, ignoredTags, ignoreTagInput]);
-
-  const watchedTagIdSet = useMemo(
-    () => new Set(watchingTags.map((tag) => Number(tag.tag_id))),
-    [watchingTags],
-  );
-  const watchedTagNameSet = useMemo(
-    () => new Set(watchingTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [watchingTags],
-  );
-  const ignoredTagIdSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => Number(tag.tag_id))),
-    [ignoredTags],
-  );
-  const ignoredTagNameSet = useMemo(
-    () => new Set(ignoredTags.map((tag) => String(tag.tag_name || '').toLowerCase())),
-    [ignoredTags],
-  );
 
   const visibleQuestions = useMemo(() => {
     let next = [...questions];
@@ -308,60 +251,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
       });
   }, [questions]);
 
-  const upsertTagPreference = (updated) => {
-    setTagPreferences((prev) => {
-      const existing = (prev || []).find((item) => item.tag_id === updated.tag_id);
-      if (existing) {
-        return (prev || []).map((item) =>
-          item.tag_id === updated.tag_id
-            ? {
-                ...item,
-                tag_name: updated.tag_name || item.tag_name,
-                count: updated.count ?? item.count,
-                is_watching: updated.is_watching,
-                is_ignored: updated.is_ignored,
-              }
-            : item
-        );
-      }
-
-      return [
-        {
-          tag_id: updated.tag_id,
-          tag_name: updated.tag_name,
-          count: updated.count ?? 0,
-          is_watching: updated.is_watching,
-          is_ignored: updated.is_ignored,
-        },
-        ...(prev || []),
-      ];
-    });
-  };
-
-  const handleSetTagPreference = async ({ tagId, field, value }) => {
-    if (!team?.id) {
-      return;
-    }
-
-    const requestKey = `${field}:${tagId}`;
-    setUpdatingTagPreferenceKey(requestKey);
-    setTagPreferenceError('');
-
-    try {
-      const updated = await tagService.updatePreference({
-        teamId: team.id,
-        tagId,
-        field,
-        value,
-      });
-      upsertTagPreference(updated);
-    } catch (err) {
-      setTagPreferenceError(err.response?.data?.error || 'Failed to update tag preference.');
-    } finally {
-      setUpdatingTagPreferenceKey('');
-    }
-  };
-
   const resetQuestionDetailState = useCallback(() => {
     setIsEditingQuestion(false);
     setIsEditingTagsOnly(false);
@@ -372,15 +261,7 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     setEditingAnswerId(null);
     setEditAnswerBody('');
     setEditAnswerError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
     setVoteError('');
     setApprovalError('');
     setShowCloseModal(false);
@@ -401,7 +282,7 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     setSelectedBountyReason(BOUNTY_REASONS[0].title);
     setOfferingBounty(false);
     setAwardingBountyAnswerId(null);
-  }, []);
+  }, [resetCommentSectionState]);
 
   const mentionedUserIdSet = useMemo(
     () => new Set((selectedQuestion?.mentions || []).map((item) => Number(item.user_id))),
@@ -531,37 +412,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
     } finally {
       setFollowingQuestion(false);
     }
-  };
-
-  const buildCommentKey = (targetType, targetId) => `${targetType}:${targetId}`;
-  const buildCommentItemKey = (targetType, targetId, commentId) => `${targetType}:${targetId}:${commentId}`;
-
-  const getCommentDataForTarget = (targetType, targetId, serverComments) => {
-    const comments = Array.isArray(serverComments) ? serverComments : [];
-    const commentById = new Map(comments.map((comment) => [comment.id, comment]));
-    const repliesByParentId = {};
-    const orphanRepliesByMissingParent = {};
-
-    comments.forEach((comment) => {
-      if (!comment.parent_comment) {
-        return;
-      }
-
-      if (commentById.has(comment.parent_comment)) {
-        const list = repliesByParentId[comment.parent_comment] || [];
-        repliesByParentId[comment.parent_comment] = [...list, comment];
-        return;
-      }
-
-      const orphanList = orphanRepliesByMissingParent[comment.parent_comment] || [];
-      orphanRepliesByMissingParent[comment.parent_comment] = [...orphanList, comment];
-    });
-
-    return {
-      roots: comments.filter((comment) => !comment.parent_comment),
-      repliesByParentId,
-      orphanRepliesByMissingParent,
-    };
   };
 
   const handleCommentDraftChange = (targetType, targetId, value) => {
@@ -978,33 +828,6 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
       </li>
     );
   };
-
-  const getQuestionIdFromUrl = useCallback(() => {
-    const value = new URLSearchParams(window.location.search).get('question');
-    if (!value) {
-      return null;
-    }
-
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-  }, []);
-
-  const setQuestionIdInUrl = useCallback((questionId, replace = false) => {
-    const url = new URL(window.location.href);
-    if (questionId) {
-      url.searchParams.set('question', String(questionId));
-    } else {
-      url.searchParams.delete('question');
-    }
-
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
-  }, []);
 
   useEffect(() => {
     if (!isEditingQuestion) {

@@ -2,9 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { collectionService, commentService, postService, voteService } from '../../services/api';
 import QuestionTab from './QuestionTab';
 import ArticlesTab from './ArticlesTab';
-import CommentSection, { buildCommentData, EMPTY_COMMENT_DATA } from '../../components/CommentSection';
+import CommentSection, {
+  buildCommentData,
+  EMPTY_COMMENT_DATA,
+  buildCommentKey,
+  buildCommentItemKey,
+} from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
 import { formatRelativeTimestamp } from '../../utils/dateTime';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
+import useCollectionUrlState, { useSyncCollectionUrlState } from '../../hooks/useCollectionUrlSync';
 
 const formatCollectionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -19,11 +26,6 @@ const getPostTypeLabel = (post) => {
 };
 
 const isArticlePost = (post) => articleTypes.has(Number(post.type));
-
-const getPositiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
 
 function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   const [collections, setCollections] = useState([]);
@@ -49,79 +51,52 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   const [collectionVoteError, setCollectionVoteError] = useState('');
   const [collectionBookmarkError, setCollectionBookmarkError] = useState('');
   const [votingCollection, setVotingCollection] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
 
-  const getCollectionIdFromUrl = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-    return getPositiveInteger(params.get('collection'));
+  const clearCollectionSelectionFromUrl = useCallback(() => {
+    setSelectedCollection(null);
+    setSelectedCollectionPost(null);
+    setCollectionPostCards({});
+    setDetailError('');
+    setCollectionPostError('');
+    setSearchError('');
+    setCollectionBookmarkError('');
+    setPostSearchTerm('');
+    setPostSearchResults([]);
+    resetCommentSectionState();
+  }, [resetCommentSectionState]);
+
+  const clearCollectionPostSelectionFromUrl = useCallback(() => {
+    setSelectedCollectionPost(null);
+    setCollectionPostError('');
   }, []);
 
-  const getCollectionPostIdFromUrl = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-    return getPositiveInteger(params.get('collection_post'));
-  }, []);
-
-  const getCollectionPostTypeFromUrl = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-    const postType = params.get('collection_post_type');
-    if (postType === 'a' || postType === 'q') {
-      return postType;
-    }
-
-    if (getPositiveInteger(params.get('article'))) {
-      return 'a';
-    }
-
-    if (getPositiveInteger(params.get('question'))) {
-      return 'q';
-    }
-
-    return null;
-  }, []);
-
-  const setCollectionStateInUrl = useCallback((collectionId, postMeta = null, replace = false) => {
-    const url = new URL(window.location.href);
-
-    if (collectionId) {
-      url.searchParams.set('collection', String(collectionId));
-    } else {
-      url.searchParams.delete('collection');
-    }
-
-    if (collectionId && postMeta?.id && postMeta?.type) {
-      url.searchParams.set('collection_post', String(postMeta.id));
-      url.searchParams.set('collection_post_type', postMeta.type);
-
-      if (postMeta.type === 'a') {
-        url.searchParams.set('article', String(postMeta.id));
-        url.searchParams.delete('question');
-      } else {
-        url.searchParams.set('question', String(postMeta.id));
-        url.searchParams.delete('article');
-      }
-    } else {
-      url.searchParams.delete('collection_post');
-      url.searchParams.delete('collection_post_type');
-      url.searchParams.delete('question');
-      url.searchParams.delete('article');
-    }
-
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
-  }, []);
+  const {
+    getCollectionIdFromUrl,
+    getCollectionPostIdFromUrl,
+    getCollectionPostTypeFromUrl,
+    setCollectionStateInUrl,
+  } = useCollectionUrlState();
 
   useEffect(() => {
     const loadCollections = async () => {
@@ -162,15 +137,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setSelectedCollectionPost(null);
     setCollectionVoteError('');
     setCollectionBookmarkError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
 
     try {
       const detail = await collectionService.getCollectionDetail(collectionId);
@@ -187,7 +154,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     } finally {
       setOpeningCollection(false);
     }
-  }, [setCollectionStateInUrl]);
+  }, [setCollectionStateInUrl, resetCommentSectionState]);
 
   const openCollectionPost = useCallback(async (postRef, updateUrl = false) => {
     if (!postRef?.post_id) {
@@ -217,6 +184,19 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setOpeningCollectionPost(false);
   }, [selectedCollection?.id, setCollectionStateInUrl]);
 
+  useSyncCollectionUrlState({
+    teamId: team?.id,
+    selectedCollection,
+    selectedCollectionPost,
+    getCollectionIdFromUrl,
+    getCollectionPostIdFromUrl,
+    getCollectionPostTypeFromUrl,
+    openCollection,
+    openCollectionPost,
+    clearCollectionSelectionFromUrl,
+    clearCollectionPostSelectionFromUrl,
+  });
+
   const handleBackToCollections = () => {
     setSelectedCollection(null);
     setSelectedCollectionPost(null);
@@ -229,15 +209,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setPostSearchResults([]);
     setCollectionVoteError('');
     setCollectionBookmarkError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
 
     if (getCollectionIdFromUrl()) {
       setCollectionStateInUrl(null, null, true);
@@ -336,37 +308,6 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     } catch (err) {
       setCollectionBookmarkError(err.response?.data?.error || 'Failed to update bookmark.');
     }
-  };
-
-  const buildCommentKey = (targetType, targetId) => `${targetType}:${targetId}`;
-  const buildCommentItemKey = (targetType, targetId, commentId) => `${targetType}:${targetId}:${commentId}`;
-
-  const getCommentDataForTarget = (serverComments) => {
-    const comments = Array.isArray(serverComments) ? serverComments : [];
-    const commentById = new Map(comments.map((comment) => [comment.id, comment]));
-    const repliesByParentId = {};
-    const orphanRepliesByMissingParent = {};
-
-    comments.forEach((comment) => {
-      if (!comment.parent_comment) {
-        return;
-      }
-
-      if (commentById.has(comment.parent_comment)) {
-        const list = repliesByParentId[comment.parent_comment] || [];
-        repliesByParentId[comment.parent_comment] = [...list, comment];
-        return;
-      }
-
-      const orphanList = orphanRepliesByMissingParent[comment.parent_comment] || [];
-      orphanRepliesByMissingParent[comment.parent_comment] = [...orphanList, comment];
-    });
-
-    return {
-      roots: comments.filter((comment) => !comment.parent_comment),
-      repliesByParentId,
-      orphanRepliesByMissingParent,
-    };
   };
 
   const handleCommentDraftChange = (targetType, targetId, value) => {
@@ -836,87 +777,6 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
 
     loadCollectionPostCards();
   }, [selectedCollection, team?.id]);
-
-  useEffect(() => {
-    const syncFromUrl = async () => {
-      if (!team?.id) {
-        return;
-      }
-
-      const urlCollectionId = getCollectionIdFromUrl();
-      if (!urlCollectionId) {
-        if (selectedCollection) {
-          setSelectedCollection(null);
-          setSelectedCollectionPost(null);
-          setCollectionPostCards({});
-          setDetailError('');
-          setCollectionPostError('');
-          setSearchError('');
-          setCollectionBookmarkError('');
-          setPostSearchTerm('');
-          setPostSearchResults([]);
-          setCommentDrafts({});
-          setCommentErrors({});
-          setCollapsedCommentSections({});
-          setActiveCommentMenuKey('');
-          setEditingCommentKey('');
-          setEditingCommentBody('');
-          setReplyDrafts({});
-          setActiveReplyComposerKey('');
-          setShowDeletedTrees({});
-        }
-        return;
-      }
-
-      if (selectedCollection?.id !== urlCollectionId) {
-        await openCollection(urlCollectionId, false);
-        return;
-      }
-
-      const urlCollectionPostId = getCollectionPostIdFromUrl();
-      const urlCollectionPostType = getCollectionPostTypeFromUrl();
-      if (!urlCollectionPostId) {
-        if (selectedCollectionPost) {
-          setSelectedCollectionPost(null);
-          setCollectionPostError('');
-        }
-        return;
-      }
-
-      if (selectedCollectionPost?.post_id === urlCollectionPostId) {
-        return;
-      }
-
-      const refFromCollection = (selectedCollection.posts || []).find(
-        (item) => Number(item.post_id) === urlCollectionPostId
-      );
-
-      const fallbackRef = {
-        post_id: urlCollectionPostId,
-        type: urlCollectionPostType === 'a' ? 22 : 0,
-      };
-
-      await openCollectionPost(refFromCollection || fallbackRef, false);
-    };
-
-    syncFromUrl();
-
-    const onPopState = () => {
-      syncFromUrl();
-    };
-
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [
-    team?.id,
-    selectedCollection,
-    selectedCollectionPost,
-    getCollectionIdFromUrl,
-    getCollectionPostIdFromUrl,
-    getCollectionPostTypeFromUrl,
-    openCollection,
-    openCollectionPost,
-  ]);
 
   const handleAddPost = async (postId) => {
     if (!selectedCollection) {
