@@ -1,39 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { reputationService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-function formatDateHeader(dateValue) {
-  if (!dateValue) {
-    return 'Unknown date';
-  }
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatTime(dateValue) {
-  if (!dateValue) {
-    return '-';
-  }
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-
-  return date.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatProfileClockTime, formatProfileDateHeader } from '../../utils/dateTime';
 
 function getPointsClass(points) {
   if (points > 0) {
@@ -89,7 +57,7 @@ function ReputationTab({ team, profileUserId, onOpenReference }) {
     >
       <section className="space-y-4">
         {groups.map((group) => {
-          const dateLabel = formatDateHeader(group.date);
+          const dateLabel = formatProfileDateHeader(group.date);
           const groupTotal = Number(group.total_points || 0);
           const items = Array.isArray(group.items) ? group.items : [];
 
@@ -123,7 +91,7 @@ function ReputationTab({ team, profileUserId, onOpenReference }) {
                       {entry.post_title || 'Untitled post'}
                     </button>
 
-                    <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">{formatTime(entry.created_at)}</span>
+                    <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">{formatProfileClockTime(entry.created_at)}</span>
                   </div>
                 ))}
               </div>
