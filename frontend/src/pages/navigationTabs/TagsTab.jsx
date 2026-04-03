@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { tagService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import useFilteredList from '../../hooks/useFilteredList';
+import useTeamResource from '../../hooks/useTeamResource';
 
 const formatDate = (value) => {
   if (!value) {
@@ -20,29 +21,24 @@ const formatDate = (value) => {
 };
 
 function TagsTab({ team }) {
-  const [tags, setTags] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [postSortOrder, setPostSortOrder] = useState('desc');
+  const loadTags = useCallback(async () => {
+    const data = await tagService.listTags(team?.id);
+    return Array.isArray(data) ? data : [];
+  }, [team?.id]);
 
-  useEffect(() => {
-    const loadTags = async () => {
-      setLoading(true);
-      setError('');
-
-      try {
-        const data = await tagService.listTags(team.id);
-        setTags(data);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load tags.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTags();
-  }, [team.id]);
+  const {
+    data: tags,
+    loading,
+    error,
+  } = useTeamResource({
+    enabled: Boolean(team?.id),
+    initialData: [],
+    loadResource: loadTags,
+    fallbackErrorMessage: 'Failed to load tags.',
+    dependencies: [team?.id],
+  });
 
   const visibleTags = useFilteredList(tags, (source) => {
     const query = searchQuery.trim().toLowerCase();
