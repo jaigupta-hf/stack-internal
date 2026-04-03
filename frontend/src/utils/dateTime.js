@@ -183,3 +183,62 @@ export const formatProfileClockTime = (dateValue, { locale } = {}) => {
 
   return formatter.format(date);
 };
+
+export const formatHomeQuestionTime = (timestamp) =>
+  formatRelativeTimestamp(timestamp, {
+    month: 'short',
+    hour: 'numeric',
+    hour12: true,
+  });
+
+export const formatFeedTime = (value) => {
+  const date = getValidDate(value);
+  if (!date) {
+    return '';
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 60) {
+    return `${Math.max(1, minutes)}m ago`;
+  }
+
+  const hours = Math.floor(diffMs / 3600000);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.floor(diffMs / 86400000);
+  if (days < 30) {
+    return `${days}d ago`;
+  }
+
+  return date.toLocaleString();
+};
+
+export const formatBookmarkTime = (timestamp) => {
+  const created = getValidDate(timestamp);
+  if (!created) {
+    return '';
+  }
+
+  const now = new Date();
+  const diffMs = now.getTime() - created.getTime();
+  const diffHours = Math.floor(diffMs / 3600000);
+
+  if (diffHours < 24) {
+    const hours = Math.max(diffHours, 1);
+    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+};
+
+export const formatProfileTimeWithFallback = (timestamp, formatter) => {
+  if (typeof formatter === 'function') {
+    return formatter(timestamp);
+  }
+
+  return '';
+};

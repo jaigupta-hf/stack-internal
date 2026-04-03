@@ -1,31 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { notificationService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-const formatFeedTime = (value) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 60) {
-    return `${Math.max(1, minutes)}m ago`;
-  }
-
-  const hours = Math.floor(diffMs / 3600000);
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-
-  const days = Math.floor(diffMs / 86400000);
-  if (days < 30) {
-    return `${days}d ago`;
-  }
-
-  return date.toLocaleString();
-};
+import { formatFeedTime } from '../../utils/dateTime';
 
 const NOTIFICATION_REASON_ACTION_TEXT = {
   answer_posted_on_your_question: 'answered your question',
