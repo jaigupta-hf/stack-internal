@@ -2,67 +2,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { collectionService, commentService, postService, voteService } from '../../services/api';
 import QuestionTab from './QuestionTab';
 import ArticlesTab from './ArticlesTab';
+import CommentSection, {
+  buildCommentData,
+  EMPTY_COMMENT_DATA,
+  buildCommentKey,
+  buildCommentItemKey,
+} from '../../components/CommentSection';
+import VotePanel from '../../components/VotePanel';
+import { formatRelativeTimestamp } from '../../utils/dateTime';
+import useCommentSectionState from '../../hooks/useCommentSectionState';
+import useCollectionUrlState, { useSyncCollectionUrlState } from '../../hooks/useCollectionUrlSync';
 
-const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  day: 'numeric',
-});
-
-const istMonthFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  month: 'long',
-});
-
-const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-
-const getOrdinal = (day) => {
-  if (day >= 11 && day <= 13) {
-    return `${day}th`;
-  }
-
-  const lastDigit = day % 10;
-  if (lastDigit === 1) {
-    return `${day}st`;
-  }
-  if (lastDigit === 2) {
-    return `${day}nd`;
-  }
-  if (lastDigit === 3) {
-    return `${day}rd`;
-  }
-  return `${day}th`;
-};
-
-const formatCollectionTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  const day = Number(istDayFormatter.format(created));
-  const month = istMonthFormatter.format(created).toLowerCase();
-  const time = istTimeFormatter.format(created);
-  return `${getOrdinal(day)} ${month} at ${time}`;
-};
+const formatCollectionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
 const articleTypes = new Set([20, 21, 22, 23]);
 
@@ -75,11 +26,6 @@ const getPostTypeLabel = (post) => {
 };
 
 const isArticlePost = (post) => articleTypes.has(Number(post.type));
-
-const getPositiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-};
 
 function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   const [collections, setCollections] = useState([]);
@@ -105,79 +51,52 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   const [collectionVoteError, setCollectionVoteError] = useState('');
   const [collectionBookmarkError, setCollectionBookmarkError] = useState('');
   const [votingCollection, setVotingCollection] = useState(false);
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [commentErrors, setCommentErrors] = useState({});
-  const [collapsedCommentSections, setCollapsedCommentSections] = useState({});
-  const [activeCommentMenuKey, setActiveCommentMenuKey] = useState('');
-  const [editingCommentKey, setEditingCommentKey] = useState('');
-  const [editingCommentBody, setEditingCommentBody] = useState('');
-  const [replyDrafts, setReplyDrafts] = useState({});
-  const [activeReplyComposerKey, setActiveReplyComposerKey] = useState('');
-  const [showDeletedTrees, setShowDeletedTrees] = useState({});
+  const {
+    commentDrafts,
+    setCommentDrafts,
+    commentErrors,
+    setCommentErrors,
+    collapsedCommentSections,
+    setCollapsedCommentSections,
+    activeCommentMenuKey,
+    setActiveCommentMenuKey,
+    editingCommentKey,
+    setEditingCommentKey,
+    editingCommentBody,
+    setEditingCommentBody,
+    replyDrafts,
+    setReplyDrafts,
+    activeReplyComposerKey,
+    setActiveReplyComposerKey,
+    showDeletedTrees,
+    setShowDeletedTrees,
+    resetCommentSectionState,
+  } = useCommentSectionState();
 
-  const getCollectionIdFromUrl = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-    return getPositiveInteger(params.get('collection'));
+  const clearCollectionSelectionFromUrl = useCallback(() => {
+    setSelectedCollection(null);
+    setSelectedCollectionPost(null);
+    setCollectionPostCards({});
+    setDetailError('');
+    setCollectionPostError('');
+    setSearchError('');
+    setCollectionBookmarkError('');
+    setPostSearchTerm('');
+    setPostSearchResults([]);
+    resetCommentSectionState();
+  }, [resetCommentSectionState]);
+
+  const clearCollectionPostSelectionFromUrl = useCallback(() => {
+    setSelectedCollectionPost(null);
+    setCollectionPostError('');
   }, []);
 
-  const getCollectionPostIdFromUrl = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-    return getPositiveInteger(params.get('collection_post'));
-  }, []);
-
-  const getCollectionPostTypeFromUrl = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-    const postType = params.get('collection_post_type');
-    if (postType === 'a' || postType === 'q') {
-      return postType;
-    }
-
-    if (getPositiveInteger(params.get('article'))) {
-      return 'a';
-    }
-
-    if (getPositiveInteger(params.get('question'))) {
-      return 'q';
-    }
-
-    return null;
-  }, []);
-
-  const setCollectionStateInUrl = useCallback((collectionId, postMeta = null, replace = false) => {
-    const url = new URL(window.location.href);
-
-    if (collectionId) {
-      url.searchParams.set('collection', String(collectionId));
-    } else {
-      url.searchParams.delete('collection');
-    }
-
-    if (collectionId && postMeta?.id && postMeta?.type) {
-      url.searchParams.set('collection_post', String(postMeta.id));
-      url.searchParams.set('collection_post_type', postMeta.type);
-
-      if (postMeta.type === 'a') {
-        url.searchParams.set('article', String(postMeta.id));
-        url.searchParams.delete('question');
-      } else {
-        url.searchParams.set('question', String(postMeta.id));
-        url.searchParams.delete('article');
-      }
-    } else {
-      url.searchParams.delete('collection_post');
-      url.searchParams.delete('collection_post_type');
-      url.searchParams.delete('question');
-      url.searchParams.delete('article');
-    }
-
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
-  }, []);
+  const {
+    getCollectionIdFromUrl,
+    getCollectionPostIdFromUrl,
+    getCollectionPostTypeFromUrl,
+    setCollectionStateInUrl,
+  } = useCollectionUrlState();
 
   useEffect(() => {
     const loadCollections = async () => {
@@ -218,15 +137,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setSelectedCollectionPost(null);
     setCollectionVoteError('');
     setCollectionBookmarkError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
 
     try {
       const detail = await collectionService.getCollectionDetail(collectionId);
@@ -243,7 +154,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     } finally {
       setOpeningCollection(false);
     }
-  }, [setCollectionStateInUrl]);
+  }, [setCollectionStateInUrl, resetCommentSectionState]);
 
   const openCollectionPost = useCallback(async (postRef, updateUrl = false) => {
     if (!postRef?.post_id) {
@@ -273,6 +184,19 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setOpeningCollectionPost(false);
   }, [selectedCollection?.id, setCollectionStateInUrl]);
 
+  useSyncCollectionUrlState({
+    teamId: team?.id,
+    selectedCollection,
+    selectedCollectionPost,
+    getCollectionIdFromUrl,
+    getCollectionPostIdFromUrl,
+    getCollectionPostTypeFromUrl,
+    openCollection,
+    openCollectionPost,
+    clearCollectionSelectionFromUrl,
+    clearCollectionPostSelectionFromUrl,
+  });
+
   const handleBackToCollections = () => {
     setSelectedCollection(null);
     setSelectedCollectionPost(null);
@@ -285,15 +209,7 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     setPostSearchResults([]);
     setCollectionVoteError('');
     setCollectionBookmarkError('');
-    setCommentDrafts({});
-    setCommentErrors({});
-    setCollapsedCommentSections({});
-    setActiveCommentMenuKey('');
-    setEditingCommentKey('');
-    setEditingCommentBody('');
-    setReplyDrafts({});
-    setActiveReplyComposerKey('');
-    setShowDeletedTrees({});
+    resetCommentSectionState();
 
     if (getCollectionIdFromUrl()) {
       setCollectionStateInUrl(null, null, true);
@@ -392,37 +308,6 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     } catch (err) {
       setCollectionBookmarkError(err.response?.data?.error || 'Failed to update bookmark.');
     }
-  };
-
-  const buildCommentKey = (targetType, targetId) => `${targetType}:${targetId}`;
-  const buildCommentItemKey = (targetType, targetId, commentId) => `${targetType}:${targetId}:${commentId}`;
-
-  const getCommentDataForTarget = (serverComments) => {
-    const comments = Array.isArray(serverComments) ? serverComments : [];
-    const commentById = new Map(comments.map((comment) => [comment.id, comment]));
-    const repliesByParentId = {};
-    const orphanRepliesByMissingParent = {};
-
-    comments.forEach((comment) => {
-      if (!comment.parent_comment) {
-        return;
-      }
-
-      if (commentById.has(comment.parent_comment)) {
-        const list = repliesByParentId[comment.parent_comment] || [];
-        repliesByParentId[comment.parent_comment] = [...list, comment];
-        return;
-      }
-
-      const orphanList = orphanRepliesByMissingParent[comment.parent_comment] || [];
-      orphanRepliesByMissingParent[comment.parent_comment] = [...orphanList, comment];
-    });
-
-    return {
-      roots: comments.filter((comment) => !comment.parent_comment),
-      repliesByParentId,
-      orphanRepliesByMissingParent,
-    };
   };
 
   const handleCommentDraftChange = (targetType, targetId, value) => {
@@ -893,87 +778,6 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
     loadCollectionPostCards();
   }, [selectedCollection, team?.id]);
 
-  useEffect(() => {
-    const syncFromUrl = async () => {
-      if (!team?.id) {
-        return;
-      }
-
-      const urlCollectionId = getCollectionIdFromUrl();
-      if (!urlCollectionId) {
-        if (selectedCollection) {
-          setSelectedCollection(null);
-          setSelectedCollectionPost(null);
-          setCollectionPostCards({});
-          setDetailError('');
-          setCollectionPostError('');
-          setSearchError('');
-          setCollectionBookmarkError('');
-          setPostSearchTerm('');
-          setPostSearchResults([]);
-          setCommentDrafts({});
-          setCommentErrors({});
-          setCollapsedCommentSections({});
-          setActiveCommentMenuKey('');
-          setEditingCommentKey('');
-          setEditingCommentBody('');
-          setReplyDrafts({});
-          setActiveReplyComposerKey('');
-          setShowDeletedTrees({});
-        }
-        return;
-      }
-
-      if (selectedCollection?.id !== urlCollectionId) {
-        await openCollection(urlCollectionId, false);
-        return;
-      }
-
-      const urlCollectionPostId = getCollectionPostIdFromUrl();
-      const urlCollectionPostType = getCollectionPostTypeFromUrl();
-      if (!urlCollectionPostId) {
-        if (selectedCollectionPost) {
-          setSelectedCollectionPost(null);
-          setCollectionPostError('');
-        }
-        return;
-      }
-
-      if (selectedCollectionPost?.post_id === urlCollectionPostId) {
-        return;
-      }
-
-      const refFromCollection = (selectedCollection.posts || []).find(
-        (item) => Number(item.post_id) === urlCollectionPostId
-      );
-
-      const fallbackRef = {
-        post_id: urlCollectionPostId,
-        type: urlCollectionPostType === 'a' ? 22 : 0,
-      };
-
-      await openCollectionPost(refFromCollection || fallbackRef, false);
-    };
-
-    syncFromUrl();
-
-    const onPopState = () => {
-      syncFromUrl();
-    };
-
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [
-    team?.id,
-    selectedCollection,
-    selectedCollectionPost,
-    getCollectionIdFromUrl,
-    getCollectionPostIdFromUrl,
-    getCollectionPostTypeFromUrl,
-    openCollection,
-    openCollectionPost,
-  ]);
-
   const handleAddPost = async (postId) => {
     if (!selectedCollection) {
       return;
@@ -1045,8 +849,8 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
   };
 
   const collectionCommentData = selectedCollection
-    ? getCommentDataForTarget(selectedCollection.comments)
-    : { roots: [], repliesByParentId: {}, orphanRepliesByMissingParent: {} };
+    ? buildCommentData(selectedCollection.comments)
+    : EMPTY_COMMENT_DATA;
 
   return (
     /* Collection tab header */
@@ -1119,43 +923,20 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
             {/* Collection voting component */ }
             {!selectedCollectionPost ? (
               <div className="mt-2 flex items-start gap-2">
-                <div className="flex shrink-0 flex-col items-center gap-1 rounded-xl border border-white/0 bg-black/30 px-2 py-2">
-                  <button
-                    type="button"
-                    onClick={handleCollectionUpvote}
-                    disabled={votingCollection}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                      Number(selectedCollection.current_user_vote || 0) === 1
-                        ? 'border-cyan-300/30 bg-cyan-500/20 text-cyan-100 hover:bg-cyan-400/30'
-                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                    } ${votingCollection ? 'cursor-not-allowed opacity-70' : ''}`}
-                    aria-label="Upvote collection"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                      <path d="m6 14 6-6 6 6" />
-                    </svg>
-                  </button>
-                  <span className="min-w-[2ch] text-center text-sm font-semibold text-cyan-100">
-                    {selectedCollection.vote_count || 0}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleToggleCollectionBookmark}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
-                      selectedCollection.is_bookmarked
-                        ? 'border-amber-300/30 bg-amber-500/20 text-amber-100 hover:bg-amber-400/30'
-                        : 'border-white/10 bg-white/10 text-slate-200 hover:bg-white/15'
-                    }`}
-                    aria-label="Bookmark collection"
-                  >
-                    <svg viewBox="0 0 24 24" fill={selectedCollection.is_bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
-                      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
-                    </svg>
-                  </button>
-                  <span className="min-w-[2ch] text-center text-[11px] font-semibold text-amber-100">
-                    {selectedCollection.bookmarks_count || 0}
-                  </span>
-                </div>
+                <VotePanel
+                  score={selectedCollection.vote_count}
+                  currentVote={selectedCollection.current_user_vote}
+                  onUpvote={handleCollectionUpvote}
+                  upvoteAriaLabel="Upvote collection"
+                  upvoteDisabled={votingCollection}
+                  disabledClassName="cursor-not-allowed opacity-70"
+                  showBookmark
+                  isBookmarked={Boolean(selectedCollection.is_bookmarked)}
+                  onToggleBookmark={handleToggleCollectionBookmark}
+                  bookmarkAriaLabel="Bookmark collection"
+                  showBookmarkCount
+                  bookmarkCount={selectedCollection.bookmarks_count}
+                />
 
                 <div className="min-w-0 flex-1">
                   {/* Collection description */ }
@@ -1165,119 +946,60 @@ function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
                     </p>
                   </div>
 
-                  {/* Collection comments section */ }
-                  <div className="mt-3 max-w-xl">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs font-semibold tracking-[0.08em] text-slate-300 uppercase">
-                        Comments ({(selectedCollection.comments || []).length})
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => toggleCommentSection('collection', selectedCollection.id)}
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 bg-white/5 text-slate-300 transition hover:bg-white/15"
-                        aria-label="Toggle comments"
-                      >
-                        {collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)] ? (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                            <path d="m6 10 6 6 6-6" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3" aria-hidden="true">
-                            <path d="m6 14 6-6 6 6" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
+                  <CommentSection
+                    targetType="collection"
+                    targetId={selectedCollection.id}
+                    commentsCount={(selectedCollection.comments || []).length}
+                    commentData={collectionCommentData}
+                    collapsed={Boolean(collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)])}
+                    onToggleCollapsed={() => toggleCommentSection('collection', selectedCollection.id)}
+                    draftValue={commentDrafts[buildCommentKey('collection', selectedCollection.id)] || ''}
+                    onDraftChange={(value) => handleCommentDraftChange('collection', selectedCollection.id, value)}
+                    onAddComment={() => handleAddComment('collection', selectedCollection.id)}
+                    errorMessage={commentErrors[buildCommentKey('collection', selectedCollection.id)]}
+                    showDeletedTree={Boolean(showDeletedTrees[buildCommentKey('collection', selectedCollection.id)])}
+                    onShowDeletedTree={() =>
+                      setShowDeletedTrees((prev) => ({
+                        ...prev,
+                        [buildCommentKey('collection', selectedCollection.id)]: true,
+                      }))
+                    }
+                    activeCommentMenuKey={activeCommentMenuKey}
+                    editingCommentKey={editingCommentKey}
+                    editingCommentBody={editingCommentBody}
+                    onEditingCommentBodyChange={setEditingCommentBody}
+                    replyDrafts={replyDrafts}
+                    activeReplyComposerKey={activeReplyComposerKey}
+                    onToggleCommentMenu={toggleCommentMenu}
+                    onToggleReplyComposer={toggleReplyComposer}
+                    onReplyDraftChange={handleReplyDraftChange}
+                    onSaveCommentEdit={handleSaveCommentEdit}
+                    onStartCommentEdit={handleStartCommentEdit}
+                    onDeleteComment={handleDeleteComment}
+                    onCommentUpvote={handleCommentUpvote}
+                    onAddReply={handleAddReply}
+                    onCancelCommentEdit={() => {
+                      setEditingCommentKey('');
+                      setEditingCommentBody('');
+                    }}
+                    onCancelReplyComposer={() => setActiveReplyComposerKey('')}
+                    onOpenUserProfile={onOpenUserProfile}
+                    formatTime={formatCollectionTime}
+                    getCommentKey={buildCommentKey}
+                    getCommentItemKey={buildCommentItemKey}
+                  />
 
-                    {!collapsedCommentSections[buildCommentKey('collection', selectedCollection.id)] ? (
-                    collectionCommentData.roots.length > 0 ? (
-                      <ul className="mt-2 space-y-1.5">
-                        {collectionCommentData.roots.map((comment) =>
-                          renderCommentNode({
-                            targetType: 'collection',
-                            targetId: selectedCollection.id,
-                            comment,
-                            depth: 0,
-                            repliesByParentId: collectionCommentData.repliesByParentId,
-                          })
-                        )}
-                      </ul>
-                    ) : (null)
-                    ) : null}
+                  {collectionVoteError ? (
+                    <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
+                      {collectionVoteError}
+                    </p>
+                  ) : null}
 
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={commentDrafts[buildCommentKey('collection', selectedCollection.id)] || ''}
-                        onChange={(e) => handleCommentDraftChange('collection', selectedCollection.id, e.target.value)}
-                        maxLength={280}
-                        className="h-8 w-full rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                        placeholder="Add a short comment"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleAddComment('collection', selectedCollection.id)}
-                        className="rounded-full bg-cyan-500 px-3 py-1.5 text-[11px] font-semibold text-slate-950 transition hover:bg-cyan-400"
-                      >
-                        Add
-                      </button>
-                    </div>
-
-                    {commentErrors[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                        {commentErrors[buildCommentKey('collection', selectedCollection.id)]}
-                      </p>
-                    ) : null}
-
-                    {Object.keys(collectionCommentData.orphanRepliesByMissingParent).length > 0 &&
-                    !showDeletedTrees[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowDeletedTrees((prev) => ({
-                            ...prev,
-                            [buildCommentKey('collection', selectedCollection.id)]: true,
-                          }))
-                        }
-                        className="mt-2 text-xs text-cyan-200 underline decoration-cyan-300/70 underline-offset-2 transition hover:text-cyan-100"
-                      >
-                        show more comments
-                      </button>
-                    ) : null}
-
-                    {showDeletedTrees[buildCommentKey('collection', selectedCollection.id)] ? (
-                      <ul className="mt-2 space-y-1.5">
-                        {Object.entries(collectionCommentData.orphanRepliesByMissingParent).map(([missingParentId, replies]) => (
-                          <li key={`deleted-collection-${selectedCollection.id}-${missingParentId}`} className="border-l-2 border-white/20 pl-2">
-                            <p className="text-xs text-slate-500 italic">deleted</p>
-                            <ul className="mt-1 ml-3 space-y-1.5">
-                              {replies.map((reply) =>
-                                renderCommentNode({
-                                  targetType: 'collection',
-                                  targetId: selectedCollection.id,
-                                  comment: reply,
-                                  depth: 1,
-                                  repliesByParentId: collectionCommentData.repliesByParentId,
-                                })
-                              )}
-                            </ul>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-
-                    {collectionVoteError ? (
-                      <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
-                        {collectionVoteError}
-                      </p>
-                    ) : null}
-
-                    {collectionBookmarkError ? (
+                  {collectionBookmarkError ? (
                       <p className="mt-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">
                         {collectionBookmarkError}
                       </p>
                     ) : null}
-                  </div>
                 </div>
               </div>
             ) : (

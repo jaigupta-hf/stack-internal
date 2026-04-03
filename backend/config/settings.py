@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'tags',
     'notifications',
     'comments',
+    'reputation',
     'apps.collections',
     'votes',
 ]
