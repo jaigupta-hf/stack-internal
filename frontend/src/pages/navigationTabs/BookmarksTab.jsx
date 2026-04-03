@@ -1,35 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import { formatBookmarkTime } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
-  const [bookmarks, setBookmarks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadBookmarks = async () => {
-      if (!team?.id) {
-        setBookmarks([]);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const data = await postService.listBookmarks(team.id);
-        setBookmarks(data);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load bookmarks.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBookmarks();
+  const loadBookmarks = useCallback(async () => {
+    const data = await postService.listBookmarks(team?.id);
+    return Array.isArray(data) ? data : [];
   }, [team?.id]);
+
+  const {
+    data: bookmarks,
+    setData: setBookmarks,
+    loading,
+    error,
+    setError,
+  } = useTeamResource({
+    enabled: Boolean(team?.id),
+    initialData: [],
+    loadResource: loadBookmarks,
+    fallbackErrorMessage: 'Failed to load bookmarks.',
+    dependencies: [team?.id],
+  });
 
   const handleRemoveBookmark = async (item) => {
     try {
