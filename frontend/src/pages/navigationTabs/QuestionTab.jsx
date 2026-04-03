@@ -7,6 +7,7 @@ import CommentSection, {
   buildCommentItemKey,
 } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
+import ListingCard from '../../components/ListingCard';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
@@ -1964,118 +1965,110 @@ function QuestionTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
                     return (
                   <li key={question.id}>
-                    <div className={`flex items-start gap-2 rounded-2xl border px-3 py-3 text-slate-100 ${
-                      hasWatchedTag
-                        ? 'border-slate-300/25 bg-slate-500/5'
-                        : 'border-white/10 bg-black/20'
-                    }`}>
-                      <VotePanel
-                        score={question.vote_count}
-                        currentVote={question.current_user_vote}
-                        onUpvote={() => handleListQuestionUpvote(question.id)}
-                        upvoteAriaLabel="Upvote question"
-                        showBookmark
-                        isBookmarked={Boolean(question.is_bookmarked)}
-                        onToggleBookmark={() => handleToggleQuestionBookmark(question.id)}
-                        bookmarkAriaLabel="Bookmark question"
-                        neutralButtonClassName="border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
-                      />
-
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="mb-2 flex items-center gap-2">
-                          <span
-                            className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
-                              question.approved_answer
-                              ? 'border-emerald-300/0 bg-emerald-400/20 text-emerald-300'
-                              : 'border-white/0 bg-white/10 text-slate-300'
-                            }`}
-                            >
-                            {question.answer_count || 0} answers
-                          </span>
-                          <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
-                            {question.views_count || 0} views
-                          </span>
-                            {question.closed_reason ? (
-                                <span className="rounded-full border border-rose-300/0 bg-rose-400/20 px-2.5 py-0.5 text-[11px] font-medium text-rose-200">
-                                  {getCloseReasonLabel(question.closed_reason)}
-                                </span>
-                              ) : null}
-                            {(question.bounty_amount || 0) > 0 ? (
-                            <span className="rounded-full border border-amber-300/0 bg-amber-400/20 px-2.5 py-0.5 text-[11px] font-medium text-amber-100">
-                              +{question.bounty_amount} bounty
-                            </span>
-                              ) : null}
-                        </div>
-                        <div className="flex items-start justify-between gap-4">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenQuestion(question.id)}
-                            className={`text-left font-medium hover:underline transition ${
-                              question.delete_flag
-                                ? 'text-rose-300 hover:text-rose-200'
-                                : hasIgnoredTag
-                                  ? 'text-slate-400 hover:text-slate-300'
-                                  : 'text-slate-100 hover:text-cyan-200'
-                            }`}
+                    <ListingCard
+                      highlighted={hasWatchedTag}
+                      score={question.vote_count}
+                      currentVote={question.current_user_vote}
+                      onUpvote={() => handleListQuestionUpvote(question.id)}
+                      upvoteAriaLabel="Upvote question"
+                      isBookmarked={Boolean(question.is_bookmarked)}
+                      onToggleBookmark={() => handleToggleQuestionBookmark(question.id)}
+                      bookmarkAriaLabel="Bookmark question"
+                      neutralButtonClassName="border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                            question.approved_answer
+                            ? 'border-emerald-300/0 bg-emerald-400/20 text-emerald-300'
+                            : 'border-white/0 bg-white/10 text-slate-300'
+                          }`}
                           >
-                            {question.title}
-                          </button>
-                        </div>
-                        <div className="flex items-start justify-between gap-4">
-                          <p
-                            className={`mt-1 text-sm ${question.delete_flag ? 'text-rose-300/80' : hasIgnoredTag ? 'text-slate-500' : 'text-slate-300'}`}
-                            style={{
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {question.body}
-                          </p>
-                        </div>
-
-                        <div className="mt-2 flex items-center justify-between gap-4">
-                          <div className="min-w-0 flex flex-wrap gap-2">
-                            {question.tags && question.tags.length > 0
-                              ? question.tags.map((tag) => (
-                                  <button
-                                    type="button"
-                                    key={tag.id || tag.name}
-                                    onClick={() => handleApplyTagFilter(tag.name || '')}
-                                    className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
-                                      question.delete_flag
-                                        ? 'border-rose-300/30 bg-rose-400/10 text-rose-200'
-                                        : hasIgnoredTag
-                                        ? 'border-white/10 bg-white/10 text-slate-400'
-                                        : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
-                                    }`}
-                                  >
-                                    {tag.name}
-                                  </button>
-                                ))
-                              : null}
-                          </div>
-                          <p className="shrink-0 text-right text-xs text-slate-400">
-                            <span>
-                              <button
-                                type="button"
-                                onClick={() => onOpenUserProfile?.(question.user_id)}
-                                className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
-                              >
-                                {question.user_name}
-                              </button>
-                              {question.user_is_admin ? (
-                                <span className="ml-1 rounded-full border border-amber-300/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-200">
-                                  Admin
-                                </span>
-                              ) : null}{' '}
-                              asked {formatQuestionTime(question.created_at)}
-                            </span>
-                          </p>
-                        </div>
+                          {question.answer_count || 0} answers
+                        </span>
+                        <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+                          {question.views_count || 0} views
+                        </span>
+                          {question.closed_reason ? (
+                              <span className="rounded-full border border-rose-300/0 bg-rose-400/20 px-2.5 py-0.5 text-[11px] font-medium text-rose-200">
+                                {getCloseReasonLabel(question.closed_reason)}
+                              </span>
+                            ) : null}
+                          {(question.bounty_amount || 0) > 0 ? (
+                          <span className="rounded-full border border-amber-300/0 bg-amber-400/20 px-2.5 py-0.5 text-[11px] font-medium text-amber-100">
+                            +{question.bounty_amount} bounty
+                          </span>
+                            ) : null}
                       </div>
-                    </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuestion(question.id)}
+                          className={`text-left font-medium hover:underline transition ${
+                            question.delete_flag
+                              ? 'text-rose-300 hover:text-rose-200'
+                              : hasIgnoredTag
+                                ? 'text-slate-400 hover:text-slate-300'
+                                : 'text-slate-100 hover:text-cyan-200'
+                          }`}
+                        >
+                          {question.title}
+                        </button>
+                      </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <p
+                          className={`mt-1 text-sm ${question.delete_flag ? 'text-rose-300/80' : hasIgnoredTag ? 'text-slate-500' : 'text-slate-300'}`}
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {question.body}
+                        </p>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex flex-wrap gap-2">
+                          {question.tags && question.tags.length > 0
+                            ? question.tags.map((tag) => (
+                                <button
+                                  type="button"
+                                  key={tag.id || tag.name}
+                                  onClick={() => handleApplyTagFilter(tag.name || '')}
+                                  className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
+                                    question.delete_flag
+                                      ? 'border-rose-300/30 bg-rose-400/10 text-rose-200'
+                                      : hasIgnoredTag
+                                      ? 'border-white/10 bg-white/10 text-slate-400'
+                                      : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
+                                  }`}
+                                >
+                                  {tag.name}
+                                </button>
+                              ))
+                            : null}
+                        </div>
+                        <p className="shrink-0 text-right text-xs text-slate-400">
+                          <span>
+                            <button
+                              type="button"
+                              onClick={() => onOpenUserProfile?.(question.user_id)}
+                              className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
+                            >
+                              {question.user_name}
+                            </button>
+                            {question.user_is_admin ? (
+                              <span className="ml-1 rounded-full border border-amber-300/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-200">
+                                Admin
+                              </span>
+                            ) : null}{' '}
+                            asked {formatQuestionTime(question.created_at)}
+                          </span>
+                        </p>
+                      </div>
+                    </ListingCard>
                   </li>
                     );
                   })()
