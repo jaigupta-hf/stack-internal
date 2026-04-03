@@ -33,7 +33,9 @@ INSTALLED_APPS = [
     'teams',
     'posts',
     'tags',
+    'notifications',
     'comments',
+    'reputation',
     'apps.collections',
     'votes',
 ]

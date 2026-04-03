@@ -1,14 +1,14 @@
 import { useCallback } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-import { formatBookmarkTime } from '../../utils/dateTime';
+import { formatProfileTimeWithFallback } from '../../utils/dateTime';
 import useTeamResource from '../../hooks/useTeamResource';
 
-function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
+function BookmarksTab({ team, profileUserId, canEdit, formatProfileTime, onOpenReference, onOpenUserProfile }) {
   const loadBookmarks = useCallback(async () => {
-    const data = await postService.listBookmarks(team?.id);
+    const data = await postService.listBookmarks(team?.id, profileUserId);
     return Array.isArray(data) ? data : [];
-  }, [team?.id]);
+  }, [team?.id, profileUserId]);
 
   const {
     data: bookmarks,
@@ -17,30 +17,52 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
     error,
     setError,
   } = useTeamResource({
-    enabled: Boolean(team?.id),
+    enabled: Boolean(team?.id && profileUserId),
     initialData: [],
     loadResource: loadBookmarks,
     fallbackErrorMessage: 'Failed to load bookmarks.',
-    dependencies: [team?.id],
+    dependencies: [team?.id, profileUserId],
   });
 
   const handleRemoveBookmark = async (item) => {
+    if (!canEdit) {
+      return;
+    }
+
     try {
       if (item.target_type === 'collection' || (!item.post_id && item.collection_id)) {
         await postService.removeBookmark({ collectionId: item.collection_id });
       } else {
         await postService.removeBookmark({ postId: item.post_id });
       }
+
       setBookmarks((prev) => prev.filter((bookmark) => bookmark.bookmark_id !== item.bookmark_id));
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to remove bookmark.');
     }
   };
 
+  const handleOpenBookmark = (item) => {
+    if (item.target_type === 'collection' || item.collection_id) {
+      onOpenReference?.({
+        reference_type: 'collection',
+        reference_post_id: item.collection_id,
+      });
+      return;
+    }
+
+    onOpenReference?.({
+      reference_type: item.post_type && item.post_type >= 20 ? 'article' : 'question',
+      reference_post_id: item.post_id,
+    });
+  };
+
   return (
-    <div>
-      <h2 className="text-2xl font-semibold text-white">Bookmarks</h2>
-      <p className="mt-2 text-slate-300">Your saved posts for this team.</p>
+    <section className="rounded-3xl border border-white/10 bg-black/0 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold tracking-[0.12em] text-slate-300 uppercase">BOOKMARKS</h3>
+        <p className="text-xs text-slate-400">Saved posts and collections</p>
+      </div>
 
       <AsyncStateView
         loading={loading}
@@ -67,23 +89,26 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
                     {item.vote_count || 0} votes
                   </span>
                   {item.delete_flag ? (
-                    <span className="rounded-full border border-rose-300/0 bg-rose-400/20 px-2.5 py-0.5 text-[11px] font-medium text-rose-200">
+                    <span className="rounded-full border border-rose-300/30 bg-rose-500/15 px-2.5 py-0.5 text-[11px] font-medium text-rose-200">
                       Deleted
                     </span>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveBookmark(item)}
-                  className="rounded-full border border-amber-300/30 bg-amber-400/20 px-3 py-1 text-xs font-medium text-amber-100 transition hover:bg-amber-400/30"
-                >
-                  Remove
-                </button>
+
+                {canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveBookmark(item)}
+                    className="rounded-full border border-amber-300/70 bg-amber-400/20 px-3 py-1 text-xs font-medium text-amber-100 transition hover:bg-amber-400/30"
+                  >
+                    Remove
+                  </button>
+                ) : null}
               </div>
 
               <button
                 type="button"
-                onClick={() => onOpenReference?.(item)}
+                onClick={() => handleOpenBookmark(item)}
                 className={`mt-2 text-left text-base font-semibold transition hover:underline ${
                   item.delete_flag
                     ? 'text-rose-300 hover:text-rose-200'
@@ -92,6 +117,7 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
               >
                 {item.title}
               </button>
+
               <p
                 className={`mt-1 text-sm ${item.delete_flag ? 'text-rose-300/80' : 'text-slate-300'}`}
                 style={{
@@ -109,7 +135,11 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
                   {(item.tags || []).map((tag) => (
                     <span
                       key={tag.id || tag.name}
-                      className="rounded-sm border border-cyan-300/0 bg-cyan-300/10 px-2.5 py-0.5 text-[11px] font-medium text-cyan-400"
+                      className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
+                        item.delete_flag
+                          ? 'border-rose-300/30 bg-rose-400/10 text-rose-200'
+                          : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
+                      }`}
                     >
                       {tag.name}
                     </span>
@@ -124,7 +154,7 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
                     >
                       {item.user_name}
                     </button>{' '}
-                    posted {formatBookmarkTime(item.created_at)}
+                    posted {formatProfileTimeWithFallback(item.created_at, formatProfileTime)}
                   </span>
                 </p>
               </div>
@@ -132,7 +162,7 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
           ))}
         </ul>
       </AsyncStateView>
-    </div>
+    </section>
   );
 }
 

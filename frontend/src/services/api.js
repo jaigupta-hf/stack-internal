@@ -5,4 +5,6 @@ export { commentService } from './comments-api';
 export { voteService } from './vote-api';
 export { tagService } from './tags-api';
 export { collectionService } from './collection-api';
+export { notificationService } from './notification-api';
+export { reputationService } from './reputation-api';
 export { api, asList, tokenService } from './config';
