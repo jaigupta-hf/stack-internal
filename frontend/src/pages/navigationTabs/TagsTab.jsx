@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { tagService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
+import useFilteredList from '../../hooks/useFilteredList';
 
 const formatDate = (value) => {
   if (!value) {
@@ -43,18 +44,18 @@ function TagsTab({ team }) {
     loadTags();
   }, [team.id]);
 
-  const visibleTags = useMemo(() => {
+  const visibleTags = useFilteredList(tags, (source) => {
     const query = searchQuery.trim().toLowerCase();
     const filtered = query
-      ? tags.filter((tag) => (tag.name || '').toLowerCase().includes(query))
-      : tags;
+      ? source.filter((tag) => (tag.name || '').toLowerCase().includes(query))
+      : source;
 
     return [...filtered].sort((a, b) => {
       const aCount = Number(a.question_count ?? 0) + Number(a.article_count ?? 0);
       const bCount = Number(b.question_count ?? 0) + Number(b.article_count ?? 0);
       return postSortOrder === 'asc' ? aCount - bCount : bCount - aCount;
     });
-  }, [tags, searchQuery, postSortOrder]);
+  }, [searchQuery, postSortOrder]);
 
   return (
     <div>
