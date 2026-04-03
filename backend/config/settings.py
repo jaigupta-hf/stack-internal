@@ -14,9 +14,9 @@ def env_bool(name, default=False):
     return value.strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'change-me-in-env')
-DEBUG = env_bool('DEBUG', True)
-ALLOWED_HOSTS = [host.strip() for host in os.getenv('ALLOWED_HOSTS', '').split(',') if host.strip()]
+SECRET_KEY = os.getenv('SECRET_KEY')
+DEBUG = True
+ALLOWED_HOSTS = []
 
 
 INSTALLED_APPS = [
@@ -31,6 +31,13 @@ INSTALLED_APPS = [
 
     'users',
     'teams',
+    'posts',
+    'tags',
+    'notifications',
+    'comments',
+    'reputation',
+    'apps.collections',
+    'votes',
 ]
 
 MIDDLEWARE = [
@@ -95,13 +102,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 CORS_ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv(
-        'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174',
-    ).split(',')
-    if origin.strip()
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
 ]
+
 CORS_ALLOW_CREDENTIALS = True
 
 

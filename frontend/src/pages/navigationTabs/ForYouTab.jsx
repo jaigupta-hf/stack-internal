@@ -1,0 +1,222 @@
+import { useEffect, useMemo, useState } from 'react';
+import { notificationService } from '../../services/api';
+import AsyncStateView from '../../components/AsyncStateView';
+import { formatFeedTime } from '../../utils/dateTime';
+
+const NOTIFICATION_REASON_ACTION_TEXT = {
+  answer_posted_on_your_question: 'answered your question',
+  question_edited: 'edited your question',
+  question_deleted: 'deleted your question',
+  question_closed: 'closed your question',
+  question_commented: 'commented on your question',
+  your_answer_was_approved: 'approved your answer',
+  answer_edited: 'edited your answer',
+  answer_commented: 'commented on your answer',
+  comment_replied: 'replied to your comment',
+  mentioned_in_question: 'mentioned you in a question',
+  new_answer_on_followed_post: 'posted a new answer on a question you follow',
+  new_comment_on_followed_post: 'commented on a question you follow',
+  approved_answer_on_followed_post: 'approved an answer on a question you follow',
+};
+
+const reasonToActionText = (item) =>
+  NOTIFICATION_REASON_ACTION_TEXT[item.reason] || 'interacted with your post';
+
+function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChange }) {
+  const [items, setItems] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [showOnlyUnread, setShowOnlyUnread] = useState(false);
+
+  const loadNotifications = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = await notificationService.list(team.id);
+      setItems(data.items || []);
+      const nextUnreadCount = Number(data.unread_count || 0);
+      setUnreadCount(nextUnreadCount);
+      onUnreadCountChange?.(nextUnreadCount);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load your feed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, [team.id]);
+
+  const unreadIds = useMemo(() => items.filter((item) => !item.is_read).map((item) => item.id), [items]);
+
+  const handleMarkRead = async (notificationId) => {
+    try {
+      await notificationService.markRead(notificationId);
+      setItems((prev) => prev.map((item) => (item.id === notificationId ? { ...item, is_read: true } : item)));
+      setUnreadCount((prev) => {
+        const next = Math.max(prev - 1, 0);
+        onUnreadCountChange?.(next);
+        return next;
+      });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to mark notification as read.');
+    }
+  };
+
+  const handleMarkUnread = async (notificationId) => {
+    try {
+      await notificationService.markUnread(notificationId);
+      setItems((prev) => prev.map((item) => (item.id === notificationId ? { ...item, is_read: false } : item)));
+      setUnreadCount((prev) => {
+        const next = prev + 1;
+        onUnreadCountChange?.(next);
+        return next;
+      });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to mark notification as unread.');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!unreadIds.length) {
+      return;
+    }
+
+    try {
+      setMarkingAllRead(true);
+      await notificationService.markAllRead(team.id);
+      setItems((prev) => prev.map((item) => ({ ...item, is_read: true })));
+      setUnreadCount(0);
+      onUnreadCountChange?.(0);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to mark all notifications as read.');
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
+  const visibleItems = useMemo(
+    () => (showOnlyUnread ? items.filter((item) => !item.is_read) : items),
+    [items, showOnlyUnread],
+  );
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">For You</h2>
+          <p className="text-sm text-slate-300">Recent interactions related to your posts and answers.</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowOnlyUnread((prev) => !prev)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+              showOnlyUnread
+                ? 'border-cyan-300/0 bg-cyan-300/20 text-cyan-100'
+                : 'border-white/0 bg-white/10 text-slate-200 hover:bg-white/20'
+            }`}
+          >
+            {showOnlyUnread ? 'Showing unread only' : 'Show unread only'}
+          </button>
+          <span className="rounded-full border border-cyan-300/0 bg-cyan-300/15 px-3 py-1 text-xs font-medium text-cyan-200">
+            {unreadCount} unread
+          </span>
+          <button
+            type="button"
+            onClick={handleMarkAllRead}
+            disabled={markingAllRead || unreadCount === 0}
+            className="rounded-full border border-white/0 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {markingAllRead ? 'Marking...' : 'Mark all read'}
+          </button>
+        </div>
+      </div>
+
+      <AsyncStateView
+        loading={loading}
+        error={error}
+        isEmpty={visibleItems.length === 0}
+        loadingMessage="Loading your feed..."
+        emptyMessage={showOnlyUnread ? 'No unread notifications.' : 'No notifications yet.'}
+        loadingClassName="mt-6 text-slate-300"
+        errorClassName="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200"
+        emptyClassName="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400"
+      >
+        <ul className="mt-4 space-y-2">
+          {visibleItems.map((item) => {
+            const isDeletedPost = Boolean(item.post_delete_flag);
+            const postTypeLabel = item.post_type === 1 ? 'Answer' : item.post_type === 0 ? 'Question' : 'Post';
+
+            return (
+              <li
+                key={item.id}
+                className={`rounded-2xl border px-4 py-3 ${
+                  item.is_read
+                    ? 'border-white/10 bg-black/20'
+                    : 'border-cyan-300/20 bg-cyan-400/10'
+                }`}
+              >
+                <div className="mb-2 flex flex-wrap justify-between items-center gap-2">
+                  <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+                    {postTypeLabel}
+                  </span>
+                  {!item.is_read ? (
+                    <button
+                      type="button"
+                      onClick={() => handleMarkRead(item.id)}
+                      className="rounded-full border border-amber-300/30 bg-amber-400/20 px-3 py-0.5 text-[11px] font-medium text-amber-100 transition hover:bg-amber-400/30"
+                    >
+                      Mark as read
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleMarkUnread(item.id)}
+                      className="rounded-full border border-amber-300/30 bg-amber-400/20 px-3 py-0.5 text-[11px] font-medium text-amber-100 transition hover:bg-amber-400/30"
+                    >
+                      Mark as unread
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className={`text-sm font-medium ${isDeletedPost ? 'text-rose-300' : 'text-slate-100'}`}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenUserProfile?.(item.triggered_by_id)}
+                      className="font-semibold text-cyan-200 transition hover:text-cyan-100 hover:underline"
+                    >
+                      {item.triggered_by_name}
+                    </button>{' '}
+                    {reasonToActionText(item)}
+                  </p>
+                  <span className="text-xs text-slate-400">{formatFeedTime(item.created_at)}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenReference?.(item)}
+                  className={`mt-1 text-left text-sm transition hover:underline ${
+                    isDeletedPost
+                      ? 'text-rose-300/80 hover:text-rose-200'
+                      : 'text-slate-300 hover:text-cyan-200'
+                  }`}
+                >
+                  {item.post_title || 'Untitled post'}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </AsyncStateView>
+    </div>
+  );
+}
+
+export default ForYouTab;

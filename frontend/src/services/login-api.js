@@ -20,6 +20,21 @@ export const authService = {
     return response.data;
   },
 
+  async getProfile(teamId, userId = null) {
+    const params = { team_id: teamId };
+    if (userId) {
+      params.user_id = userId;
+    }
+
+    const response = await api.get('/users/profile/', { params });
+    return response.data;
+  },
+
+  async updateProfile(payload) {
+    const response = await api.patch('/users/profile/', payload);
+    return response.data;
+  },
+
   async logout() {
     try {
       await api.post('/users/auth/logout/');
