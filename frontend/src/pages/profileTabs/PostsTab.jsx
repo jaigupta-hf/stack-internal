@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import useFilteredList from '../../hooks/useFilteredList';
 
 const ACTIVITY_FILTER_OPTIONS = [
   { key: 'all', label: 'All' },
@@ -10,15 +11,15 @@ const ACTIVITY_FILTER_OPTIONS = [
 function PostsTab({ activities, onOpenReference, formatProfileTime }) {
   const [activityFilterType, setActivityFilterType] = useState('all');
 
-  const filteredActivities = useMemo(() => {
+  const filteredActivities = useFilteredList(activities, (source) => {
     if (activityFilterType === 'all') {
-      return activities;
+      return source;
     }
 
-    return activities.filter(
+    return source.filter(
       (item) => (item.type_key || item.type_label?.toLowerCase()) === activityFilterType,
     );
-  }, [activities, activityFilterType]);
+  }, [activityFilterType]);
 
   return (
     <section className="rounded-3xl border border-white/10 bg-black/0 p-5">

@@ -1,39 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import { reputationService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-function formatDateHeader(dateValue) {
-  if (!dateValue) {
-    return 'Unknown date';
-  }
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatTime(dateValue) {
-  if (!dateValue) {
-    return '-';
-  }
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-
-  return date.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatProfileClockTime, formatProfileDateHeader } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function getPointsClass(points) {
   if (points > 0) {
@@ -46,32 +15,22 @@ function getPointsClass(points) {
 }
 
 function ReputationTab({ team, profileUserId, onOpenReference }) {
-  const [groups, setGroups] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadReputationHistory = async () => {
-      if (!team?.id || !profileUserId) {
-        setGroups([]);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-      try {
-        const payload = await reputationService.listHistory(team.id, profileUserId);
-        setGroups(Array.isArray(payload?.groups) ? payload.groups : []);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load reputation history.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadReputationHistory();
+  const loadReputationHistory = useCallback(async () => {
+    const payload = await reputationService.listHistory(team?.id, profileUserId);
+    return Array.isArray(payload?.groups) ? payload.groups : [];
   }, [team?.id, profileUserId]);
+
+  const {
+    data: groups,
+    loading,
+    error,
+  } = useTeamResource({
+    enabled: Boolean(team?.id && profileUserId),
+    initialData: [],
+    loadResource: loadReputationHistory,
+    fallbackErrorMessage: 'Failed to load reputation history.',
+    dependencies: [team?.id, profileUserId],
+  });
 
   const totalPoints = useMemo(
     () => groups.reduce((sum, group) => sum + Number(group?.total_points || 0), 0),
@@ -89,7 +48,7 @@ function ReputationTab({ team, profileUserId, onOpenReference }) {
     >
       <section className="space-y-4">
         {groups.map((group) => {
-          const dateLabel = formatDateHeader(group.date);
+          const dateLabel = formatProfileDateHeader(group.date);
           const groupTotal = Number(group.total_points || 0);
           const items = Array.isArray(group.items) ? group.items : [];
 
@@ -123,7 +82,7 @@ function ReputationTab({ team, profileUserId, onOpenReference }) {
                       {entry.post_title || 'Untitled post'}
                     </button>
 
-                    <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">{formatTime(entry.created_at)}</span>
+                    <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">{formatProfileClockTime(entry.created_at)}</span>
                   </div>
                 ))}
               </div>

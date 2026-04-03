@@ -1,42 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-const formatFollowTime = (timestamp, formatProfileTime) => {
-  if (typeof formatProfileTime === 'function') {
-    return formatProfileTime(timestamp);
-  }
-
-  return '';
-};
+import { formatProfileTimeWithFallback } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function FollowingTab({ team, profileUserId, canEdit, formatProfileTime, onOpenReference, onOpenUserProfile }) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadFollowedPosts = async () => {
-      if (!team?.id || !profileUserId) {
-        setItems([]);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const data = await postService.listFollowedPosts(team.id, profileUserId);
-        setItems(data || []);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load followed posts.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadFollowedPosts();
+  const loadFollowedPosts = useCallback(async () => {
+    const data = await postService.listFollowedPosts(team?.id, profileUserId);
+    return Array.isArray(data) ? data : [];
   }, [team?.id, profileUserId]);
+
+  const {
+    data: items,
+    setData: setItems,
+    loading,
+    error,
+    setError,
+  } = useTeamResource({
+    enabled: Boolean(team?.id && profileUserId),
+    initialData: [],
+    loadResource: loadFollowedPosts,
+    fallbackErrorMessage: 'Failed to load followed posts.',
+    dependencies: [team?.id, profileUserId],
+  });
 
   const handleOpenPost = (item) => {
     onOpenReference?.({
@@ -155,7 +141,7 @@ function FollowingTab({ team, profileUserId, canEdit, formatProfileTime, onOpenR
                     >
                       {item.user_name}
                     </button>{' '}
-                    asked {formatFollowTime(item.created_at, formatProfileTime)}
+                    asked {formatProfileTimeWithFallback(item.created_at, formatProfileTime)}
                   </span>
                 </p>
               </div>

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { tagService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
+import useFilteredList from '../../hooks/useFilteredList';
+import useTeamResource from '../../hooks/useTeamResource';
 
 const formatDate = (value) => {
   if (!value) {
@@ -19,42 +21,37 @@ const formatDate = (value) => {
 };
 
 function TagsTab({ team }) {
-  const [tags, setTags] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [postSortOrder, setPostSortOrder] = useState('desc');
+  const loadTags = useCallback(async () => {
+    const data = await tagService.listTags(team?.id);
+    return Array.isArray(data) ? data : [];
+  }, [team?.id]);
 
-  useEffect(() => {
-    const loadTags = async () => {
-      setLoading(true);
-      setError('');
+  const {
+    data: tags,
+    loading,
+    error,
+  } = useTeamResource({
+    enabled: Boolean(team?.id),
+    initialData: [],
+    loadResource: loadTags,
+    fallbackErrorMessage: 'Failed to load tags.',
+    dependencies: [team?.id],
+  });
 
-      try {
-        const data = await tagService.listTags(team.id);
-        setTags(data);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load tags.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTags();
-  }, [team.id]);
-
-  const visibleTags = useMemo(() => {
+  const visibleTags = useFilteredList(tags, (source) => {
     const query = searchQuery.trim().toLowerCase();
     const filtered = query
-      ? tags.filter((tag) => (tag.name || '').toLowerCase().includes(query))
-      : tags;
+      ? source.filter((tag) => (tag.name || '').toLowerCase().includes(query))
+      : source;
 
     return [...filtered].sort((a, b) => {
       const aCount = Number(a.question_count ?? 0) + Number(a.article_count ?? 0);
       const bCount = Number(b.question_count ?? 0) + Number(b.article_count ?? 0);
       return postSortOrder === 'asc' ? aCount - bCount : bCount - aCount;
     });
-  }, [tags, searchQuery, postSortOrder]);
+  }, [searchQuery, postSortOrder]);
 
   return (
     <div>

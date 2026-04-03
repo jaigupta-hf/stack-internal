@@ -1,45 +1,44 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { teamService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
+import useFilteredList from '../../hooks/useFilteredList';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUserId = null }) {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [menuOpenUserId, setMenuOpenUserId] = useState(null);
   const [actionLoading, setActionLoading] = useState('');
+  const loadUsers = useCallback(async () => {
+    const data = await teamService.listTeamUsers(team?.id);
+    return Array.isArray(data) ? data : [];
+  }, [team?.id]);
 
-  useEffect(() => {
-    const loadUsers = async () => {
-      setLoading(true);
-      setError('');
+  const {
+    data: users,
+    setData: setUsers,
+    loading,
+    error,
+    setError,
+  } = useTeamResource({
+    enabled: Boolean(team?.id),
+    initialData: [],
+    loadResource: loadUsers,
+    fallbackErrorMessage: 'Failed to load users.',
+    dependencies: [team?.id],
+  });
 
-      try {
-        const data = await teamService.listTeamUsers(team.id);
-        setUsers(Array.isArray(data) ? data : []);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load users.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadUsers();
-  }, [team.id]);
-
-  const visibleUsers = useMemo(() => {
+  const visibleUsers = useFilteredList(users, (source) => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) {
-      return users;
+      return source;
     }
 
-    return users.filter((member) => {
+    return source.filter((member) => {
       const name = (member.name || '').toLowerCase();
       const email = (member.email || '').toLowerCase();
       return name.includes(query) || email.includes(query);
     });
-  }, [users, searchQuery]);
+  }, [searchQuery]);
 
   const usersEmptyMessage = users.length === 0
     ? 'No users found in this team.'
