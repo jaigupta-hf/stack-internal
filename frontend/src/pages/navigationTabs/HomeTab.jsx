@@ -1,14 +1,7 @@
 import { useEffect, useState } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-import { formatRelativeTimestamp } from '../../utils/dateTime';
-
-const formatQuestionTime = (timestamp) =>
-  formatRelativeTimestamp(timestamp, {
-    month: 'short',
-    hour: 'numeric',
-    hour12: true,
-  });
+import { formatHomeQuestionTime } from '../../utils/dateTime';
 
 function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
   const [trendingQuestions, setTrendingQuestions] = useState([]);
@@ -124,7 +117,7 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
                           >
                             {question.user_name || 'User'}
                           </button>{' '}
-                          asked {formatQuestionTime(question.created_at)}
+                          asked {formatHomeQuestionTime(question.created_at)}
                         </div>
                       </div>
                     </div>

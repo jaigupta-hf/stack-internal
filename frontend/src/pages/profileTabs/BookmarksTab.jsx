@@ -1,14 +1,7 @@
 import { useEffect, useState } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-const formatBookmarkTime = (timestamp, formatProfileTime) => {
-  if (typeof formatProfileTime === 'function') {
-    return formatProfileTime(timestamp);
-  }
-
-  return '';
-};
+import { formatProfileTimeWithFallback } from '../../utils/dateTime';
 
 function BookmarksTab({ team, profileUserId, canEdit, formatProfileTime, onOpenReference, onOpenUserProfile }) {
   const [bookmarks, setBookmarks] = useState([]);
@@ -168,7 +161,7 @@ function BookmarksTab({ team, profileUserId, canEdit, formatProfileTime, onOpenR
                     >
                       {item.user_name}
                     </button>{' '}
-                    posted {formatBookmarkTime(item.created_at, formatProfileTime)}
+                    posted {formatProfileTimeWithFallback(item.created_at, formatProfileTime)}
                   </span>
                 </p>
               </div>

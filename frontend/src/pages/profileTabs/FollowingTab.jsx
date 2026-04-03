@@ -1,14 +1,7 @@
 import { useEffect, useState } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
-
-const formatFollowTime = (timestamp, formatProfileTime) => {
-  if (typeof formatProfileTime === 'function') {
-    return formatProfileTime(timestamp);
-  }
-
-  return '';
-};
+import { formatProfileTimeWithFallback } from '../../utils/dateTime';
 
 function FollowingTab({ team, profileUserId, canEdit, formatProfileTime, onOpenReference, onOpenUserProfile }) {
   const [items, setItems] = useState([]);
@@ -155,7 +148,7 @@ function FollowingTab({ team, profileUserId, canEdit, formatProfileTime, onOpenR
                     >
                       {item.user_name}
                     </button>{' '}
-                    asked {formatFollowTime(item.created_at, formatProfileTime)}
+                    asked {formatProfileTimeWithFallback(item.created_at, formatProfileTime)}
                   </span>
                 </p>
               </div>
