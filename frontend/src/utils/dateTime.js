@@ -146,3 +146,40 @@ export const formatVerboseRelativeTime = (timestamp) => {
 };
 
 export const formatProfileTime = (timestamp) => formatVerboseRelativeTime(timestamp);
+
+export const formatProfileDateHeader = (dateValue, { locale } = {}) => {
+  if (!dateValue) {
+    return 'Unknown date';
+  }
+
+  const date = getValidDate(dateValue);
+  if (!date) {
+    return String(dateValue);
+  }
+
+  const formatter = getFormatter(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+
+  return formatter.format(date);
+};
+
+export const formatProfileClockTime = (dateValue, { locale } = {}) => {
+  if (!dateValue) {
+    return '-';
+  }
+
+  const date = getValidDate(dateValue);
+  if (!date) {
+    return '-';
+  }
+
+  const formatter = getFormatter(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return formatter.format(date);
+};
