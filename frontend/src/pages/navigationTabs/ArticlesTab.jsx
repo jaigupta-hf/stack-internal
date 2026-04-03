@@ -7,6 +7,7 @@ import CommentSection, {
   buildCommentItemKey,
 } from '../../components/CommentSection';
 import VotePanel from '../../components/VotePanel';
+import ListingCard from '../../components/ListingCard';
 import TagPreferencesPanel from '../../components/TagPreferencesPanel';
 import PostComposerModal from '../../components/PostComposerModal';
 import { formatRelativeTimestamp, formatVerboseRelativeTime } from '../../utils/dateTime';
@@ -1427,82 +1428,74 @@ function ArticlesTab({ team, embeddedMode = false, onOpenUserProfile }) {
 
                 return (
                   <li key={article.id}>
-                    <div className={`flex items-start gap-2 rounded-2xl border px-3 py-3 text-slate-100 ${
-                      hasWatchedTag
-                        ? 'border-slate-300/25 bg-slate-500/5'
-                        : 'border-white/10 bg-black/20'
-                    }`}>
-                      <VotePanel
-                        score={article.vote_count}
-                        currentVote={article.current_user_vote}
-                        onUpvote={() => handleListArticleUpvote(article.id)}
-                        upvoteAriaLabel="Upvote article"
-                        showBookmark
-                        isBookmarked={Boolean(article.is_bookmarked)}
-                        onToggleBookmark={() => handleToggleArticleBookmark(article.id)}
-                        bookmarkAriaLabel="Bookmark article"
-                      />
+                    <ListingCard
+                      highlighted={hasWatchedTag}
+                      score={article.vote_count}
+                      currentVote={article.current_user_vote}
+                      onUpvote={() => handleListArticleUpvote(article.id)}
+                      upvoteAriaLabel="Upvote article"
+                      isBookmarked={Boolean(article.is_bookmarked)}
+                      onToggleBookmark={() => handleToggleArticleBookmark(article.id)}
+                      bookmarkAriaLabel="Bookmark article"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+                          {article.type_label || typeLabelByCode[article.type] || 'Article'}
+                        </span>
+                        <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">{article.views_count || 0} views</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openArticle(article.id, true)}
+                        className={`mt-2 text-left text-base font-semibold transition hover:underline ${
+                          hasIgnoredTag
+                            ? 'text-slate-400 hover:text-slate-300'
+                            : 'text-slate-100 hover:text-cyan-200'
+                        }`}
+                      >
+                        {article.title}
+                      </button>
+                      <p
+                        className={`mt-1 text-sm ${hasIgnoredTag ? 'text-slate-500' : 'text-slate-300'}`}
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {article.body}
+                      </p>
 
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
-                            {article.type_label || typeLabelByCode[article.type] || 'Article'}
-                          </span>
-                          <span className="rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">{article.views_count || 0} views</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => openArticle(article.id, true)}
-                          className={`mt-2 text-left text-base font-semibold transition hover:underline ${
-                            hasIgnoredTag
-                              ? 'text-slate-400 hover:text-slate-300'
-                              : 'text-slate-100 hover:text-cyan-200'
-                          }`}
-                        >
-                          {article.title}
-                        </button>
-                        <p
-                          className={`mt-1 text-sm ${hasIgnoredTag ? 'text-slate-500' : 'text-slate-300'}`}
-                          style={{
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {article.body}
-                        </p>
-
-                        <div className="mt-2 flex items-center justify-between gap-3">
-                          <div className="min-w-0 flex flex-wrap gap-2">
-                            {(article.tags || []).map((tag) => (
-                              <button
-                                type="button"
-                                key={tag.id || tag.name}
-                                onClick={() => handleApplyArticleTagFilter(tag.name || '')}
-                                className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
-                                  hasIgnoredTag
-                                    ? 'border-white/10 bg-white/10 text-slate-400'
-                                    : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
-                                }`}
-                              >
-                                {tag.name}
-                              </button>
-                            ))}
-                          </div>
-                          <span className="shrink-0 text-xs text-slate-400">
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex flex-wrap gap-2">
+                          {(article.tags || []).map((tag) => (
                             <button
                               type="button"
-                              onClick={() => onOpenUserProfile?.(article.user_id || article.user)}
-                              className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
+                              key={tag.id || tag.name}
+                              onClick={() => handleApplyArticleTagFilter(tag.name || '')}
+                              className={`rounded-sm border px-2.5 py-0.5 text-[11px] font-medium ${
+                                hasIgnoredTag
+                                  ? 'border-white/10 bg-white/10 text-slate-400'
+                                  : 'border-cyan-300/0 bg-cyan-300/10 text-cyan-400'
+                              }`}
                             >
-                              {article.user_name}
-                            </button>{' '}
-                            created {formatArticleListTime(article.created_at)}
-                          </span>
+                              {tag.name}
+                            </button>
+                          ))}
                         </div>
+                        <span className="shrink-0 text-xs text-slate-400">
+                          <button
+                            type="button"
+                            onClick={() => onOpenUserProfile?.(article.user_id || article.user)}
+                            className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
+                          >
+                            {article.user_name}
+                          </button>{' '}
+                          created {formatArticleListTime(article.created_at)}
+                        </span>
                       </div>
-                    </div>
+                    </ListingCard>
                   </li>
                 );
               })}
