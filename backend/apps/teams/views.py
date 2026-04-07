@@ -16,6 +16,48 @@ from .serializers import (
 )
 
 
+# Fetch a team by id and return a consistent 404 response when it does not exist.
+def _get_team_or_404(team_id):
+	try:
+		return Team.objects.get(id=team_id), None
+	except Team.DoesNotExist:
+		return None, Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+# Ensure the acting user is an admin in the target team before role-management actions.
+def _get_admin_context_or_response(*, team_id, user):
+	team, team_error = _get_team_or_404(team_id)
+	if team_error:
+		return None, None, team_error
+
+	acting_membership = get_team_membership(team=team, user=user)
+	admin_error = ensure_team_admin(membership=acting_membership)
+	if admin_error:
+		return None, None, admin_error
+
+	return team, acting_membership, None
+
+
+# Load the target team membership record or return a uniform not-found response.
+def _get_target_membership_or_404(*, team, user_id, select_related_user=False):
+	target_membership = get_team_membership(
+		team=team,
+		user_id=user_id,
+		select_related_user=select_related_user,
+	)
+	if not target_membership:
+		return None, Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+	return target_membership, None
+
+
+# Prevent role changes/removals that would leave the team without any admin users.
+def _ensure_not_last_admin(team, user_id):
+	remaining_admins = TeamUser.objects.filter(team=team, is_admin=True).exclude(user_id=user_id).count()
+	if remaining_admins == 0:
+		return Response({'error': 'Team must have at least one admin'}, status=status.HTTP_400_BAD_REQUEST)
+	return None
+
+
 # List the user's joined teams (GET) or create a new team and add the creator as an admin (POST).
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -164,19 +206,17 @@ def team_users_handler(request, team_id):
 def make_team_admin_handler(request, team_id, user_id):
 	user = request.user
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+	team, _, context_error = _get_admin_context_or_response(team_id=team_id, user=user)
+	if context_error:
+		return context_error
 
-	acting_membership = get_team_membership(team=team, user=user)
-	admin_error = ensure_team_admin(membership=acting_membership)
-	if admin_error:
-		return admin_error
-
-	target_membership = get_team_membership(team=team, user_id=user_id, select_related_user=True)
-	if not target_membership:
-		return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+	target_membership, target_error = _get_target_membership_or_404(
+		team=team,
+		user_id=user_id,
+		select_related_user=True,
+	)
+	if target_error:
+		return target_error
 
 	if not target_membership.is_admin:
 		target_membership.is_admin = True
@@ -199,24 +239,22 @@ def make_team_admin_handler(request, team_id, user_id):
 def make_team_member_handler(request, team_id, user_id):
 	user = request.user
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+	team, _, context_error = _get_admin_context_or_response(team_id=team_id, user=user)
+	if context_error:
+		return context_error
 
-	acting_membership = get_team_membership(team=team, user=user)
-	admin_error = ensure_team_admin(membership=acting_membership)
-	if admin_error:
-		return admin_error
-
-	target_membership = get_team_membership(team=team, user_id=user_id, select_related_user=True)
-	if not target_membership:
-		return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+	target_membership, target_error = _get_target_membership_or_404(
+		team=team,
+		user_id=user_id,
+		select_related_user=True,
+	)
+	if target_error:
+		return target_error
 
 	if target_membership.is_admin:
-		remaining_admins = TeamUser.objects.filter(team=team, is_admin=True).exclude(user_id=user_id).count()
-		if remaining_admins == 0:
-			return Response({'error': 'Team must have at least one admin'}, status=status.HTTP_400_BAD_REQUEST)
+		last_admin_error = _ensure_not_last_admin(team, user_id)
+		if last_admin_error:
+			return last_admin_error
 
 		target_membership.is_admin = False
 		target_membership.save(update_fields=['is_admin'])
@@ -238,27 +276,21 @@ def make_team_member_handler(request, team_id, user_id):
 def remove_team_user_handler(request, team_id, user_id):
 	user = request.user
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
-
-	acting_membership = get_team_membership(team=team, user=user)
-	admin_error = ensure_team_admin(membership=acting_membership)
-	if admin_error:
-		return admin_error
+	team, _, context_error = _get_admin_context_or_response(team_id=team_id, user=user)
+	if context_error:
+		return context_error
 
 	if int(user_id) == user.id:
 		return Response({'error': 'You cannot remove yourself from the team'}, status=status.HTTP_400_BAD_REQUEST)
 
-	target_membership = get_team_membership(team=team, user_id=user_id)
-	if not target_membership:
-		return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+	target_membership, target_error = _get_target_membership_or_404(team=team, user_id=user_id)
+	if target_error:
+		return target_error
 
 	if target_membership.is_admin:
-		remaining_admins = TeamUser.objects.filter(team=team, is_admin=True).exclude(user_id=user_id).count()
-		if remaining_admins == 0:
-			return Response({'error': 'Team must have at least one admin'}, status=status.HTTP_400_BAD_REQUEST)
+		last_admin_error = _ensure_not_last_admin(team, user_id)
+		if last_admin_error:
+			return last_admin_error
 
 	target_membership.delete()
 

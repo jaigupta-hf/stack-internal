@@ -50,6 +50,47 @@ def _resolve_target(post_id, comment_id):
         return None, None, None, 'Comment not found.'
 
 
+# Resolve a target and enforce same-team access before running vote mutations.
+def _resolve_accessible_target(*, user, post_id, comment_id):
+    post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
+    if target_error:
+        return None, None, None, Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
+
+    membership_error = ensure_team_membership(team=target_team, user=user)
+    if membership_error:
+        return None, None, None, membership_error
+
+    return post, comment, target_team, None
+
+
+# Apply a vote-count delta to the target object and return its current aggregate vote_count.
+def _update_target_vote_count(*, post, comment, delta):
+    if comment is None:
+        if delta != 0:
+            Post.objects.filter(id=post.id).update(vote_count=F('vote_count') + delta)
+            post.refresh_from_db(fields=['vote_count'])
+        return post.vote_count
+
+    if delta != 0:
+        Comment.objects.filter(id=comment.id).update(vote_count=F('vote_count') + delta)
+        comment.refresh_from_db(fields=['vote_count'])
+    return comment.vote_count
+
+
+# Serialize vote state consistently for both create/update and remove endpoints.
+def _vote_output_response(*, post, comment, vote, vote_count):
+    output = VoteOutputSerializer(
+        data={
+            'post_id': post.id if comment is None else None,
+            'comment_id': comment.id if comment else None,
+            'vote': vote,
+            'vote_count': vote_count,
+        }
+    )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
+
+
 # Apply reputation deltas for post votes when transitioning between upvote/downvote/neutral states.
 def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, current_vote_value):
     if post.type not in (0, 1):
@@ -128,13 +169,13 @@ def submit_vote(request):
     comment_id = validated.get('comment_id')
     vote_value = validated['vote']
 
-    post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
-    if target_error:
-        return Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
-
-    membership_error = ensure_team_membership(team=target_team, user=user)
-    if membership_error:
-        return membership_error
+    post, comment, target_team, resolve_error = _resolve_accessible_target(
+        user=user,
+        post_id=post_id,
+        comment_id=comment_id,
+    )
+    if resolve_error:
+        return resolve_error
 
     with transaction.atomic():
         vote, created = Vote.objects.select_for_update().get_or_create(
@@ -154,17 +195,11 @@ def submit_vote(request):
                 vote.vote = vote_value
                 vote.save(update_fields=['vote'])
 
-        if delta != 0:
-            if comment is None:
-                Post.objects.filter(id=post.id).update(vote_count=F('vote_count') + delta)
-                post.refresh_from_db(fields=['vote_count'])
-                current_vote_count = post.vote_count
-            else:
-                Comment.objects.filter(id=comment.id).update(vote_count=F('vote_count') + delta)
-                comment.refresh_from_db(fields=['vote_count'])
-                current_vote_count = comment.vote_count
-        else:
-            current_vote_count = post.vote_count if comment is None else comment.vote_count
+        current_vote_count = _update_target_vote_count(
+            post=post,
+            comment=comment,
+            delta=delta,
+        )
 
         if comment is None:
             _apply_post_vote_reputation(
@@ -175,17 +210,12 @@ def submit_vote(request):
                 current_vote_value=vote_value,
             )
 
-    output = VoteOutputSerializer(
-        data={
-            'post_id': post.id if comment is None else None,
-            'comment_id': comment.id if comment else None,
-            'vote': vote.vote,
-            'vote_count': current_vote_count,
-        }
+    return _vote_output_response(
+        post=post,
+        comment=comment,
+        vote=vote.vote,
+        vote_count=current_vote_count,
     )
-    output.is_valid(raise_exception=True)
-
-    return Response(output.data, status=status.HTTP_200_OK)
 
 
 # Remove an existing vote from a post/comment, rollback aggregate counts, and reverse post reputation effects.
@@ -202,13 +232,13 @@ def remove_vote(request):
     post_id = validated.get('post_id')
     comment_id = validated.get('comment_id')
 
-    post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
-    if target_error:
-        return Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
-
-    membership_error = ensure_team_membership(team=target_team, user=user)
-    if membership_error:
-        return membership_error
+    post, comment, target_team, resolve_error = _resolve_accessible_target(
+        user=user,
+        post_id=post_id,
+        comment_id=comment_id,
+    )
+    if resolve_error:
+        return resolve_error
 
     with transaction.atomic():
         try:
@@ -223,11 +253,13 @@ def remove_vote(request):
         previous_vote = vote.vote
         vote.delete()
 
-        if comment is None:
-            Post.objects.filter(id=post.id).update(vote_count=F('vote_count') - previous_vote)
-            post.refresh_from_db(fields=['vote_count'])
-            current_vote_count = post.vote_count
+        current_vote_count = _update_target_vote_count(
+            post=post,
+            comment=comment,
+            delta=-previous_vote,
+        )
 
+        if comment is None:
             _apply_post_vote_reputation(
                 post=post,
                 team=target_team,
@@ -235,19 +267,10 @@ def remove_vote(request):
                 previous_vote_value=previous_vote,
                 current_vote_value=0,
             )
-        else:
-            Comment.objects.filter(id=comment.id).update(vote_count=F('vote_count') - previous_vote)
-            comment.refresh_from_db(fields=['vote_count'])
-            current_vote_count = comment.vote_count
 
-    output = VoteOutputSerializer(
-        data={
-            'post_id': post.id if comment is None else None,
-            'comment_id': comment.id if comment else None,
-            'vote': 0,
-            'vote_count': current_vote_count,
-        }
+    return _vote_output_response(
+        post=post,
+        comment=comment,
+        vote=0,
+        vote_count=current_vote_count,
     )
-    output.is_valid(raise_exception=True)
-
-    return Response(output.data, status=status.HTTP_200_OK)
