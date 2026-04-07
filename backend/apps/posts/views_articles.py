@@ -13,6 +13,7 @@ from votes.models import Vote
 
 from .models import Bookmark, Post
 from .serializers import (
+    ArticleCreateOutputModelSerializer,
     ArticleCommentOutputSerializer,
     ArticleDetailOutputSerializer,
     ArticleListItemOutputSerializer,
@@ -65,27 +66,8 @@ def create_article(request):
         sync_post_tags(article, tag_names)
         sync_user_tags_for_post(user, article)
 
-    tags_payload = [{'name': tag_name} for tag_name in tag_names]
-
-    return Response(
-        {
-            'id': article.id,
-            'type': article.type,
-            'type_label': ARTICLE_TYPE_TO_LABEL.get(article.type, 'Article'),
-            'title': article.title,
-            'body': article.body,
-            'parent': article.parent_id,
-            'approved_answer': article.approved_answer_id,
-            'answer_count': article.answer_count,
-            'team': article.team_id,
-            'user': article.user_id,
-            'user_name': user.name,
-            'tags': tags_payload,
-            'created_at': article.created_at,
-            'modified_at': article.modified_at,
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    output_serializer = ArticleCreateOutputModelSerializer(article)
+    return Response(output_serializer.data, status=status.HTTP_201_CREATED)
 
 
 # Handle list articles.

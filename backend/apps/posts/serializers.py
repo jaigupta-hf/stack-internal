@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from teams.models import Team
-from .constants import ARTICLE_TYPE_VALUES, BOUNTY_REASON_OPTIONS, MAX_TAGS_PER_POST, MIN_TAGS_PER_POST
+from .models import Post
+from .constants import ARTICLE_TYPE_TO_LABEL, ARTICLE_TYPE_VALUES, BOUNTY_REASON_OPTIONS, MAX_TAGS_PER_POST, MIN_TAGS_PER_POST
 
 
 class CreateQuestionSerializer(serializers.Serializer):
@@ -370,6 +371,42 @@ class CreateArticleSerializer(serializers.Serializer):
         if len(value) > MAX_TAGS_PER_POST:
             raise serializers.ValidationError(f'Maximum {MAX_TAGS_PER_POST} tags are allowed.')
         return value
+
+
+class ArticleCreateOutputModelSerializer(serializers.ModelSerializer):
+    type_label = serializers.SerializerMethodField()
+    parent = serializers.IntegerField(source='parent_id', allow_null=True, read_only=True)
+    approved_answer = serializers.IntegerField(source='approved_answer_id', allow_null=True, read_only=True)
+    team = serializers.IntegerField(source='team_id', read_only=True)
+    user = serializers.IntegerField(source='user_id', read_only=True)
+    user_name = serializers.CharField(source='user.name', read_only=True)
+    tags = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Post
+        fields = [
+            'id',
+            'type',
+            'type_label',
+            'title',
+            'body',
+            'parent',
+            'approved_answer',
+            'answer_count',
+            'team',
+            'user',
+            'user_name',
+            'tags',
+            'created_at',
+            'modified_at',
+        ]
+
+    def get_type_label(self, obj):
+        return ARTICLE_TYPE_TO_LABEL.get(obj.type, 'Article')
+
+    def get_tags(self, obj):
+        tag_posts = obj.tag_posts.select_related('tag').all()
+        return [{'name': item.tag.name} for item in tag_posts]
 
 
 class ArticleTagSerializer(serializers.Serializer):

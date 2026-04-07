@@ -1,4 +1,4 @@
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -58,6 +58,34 @@ def _ensure_not_last_admin(team, user_id):
 	return None
 
 
+# List joined teams (GET) or create a team and assign creator as admin (POST) with DRF generic routing.
+class TeamsListCreateView(generics.ListCreateAPIView):
+	permission_classes = [IsAuthenticated]
+	serializer_class = TeamSerializer
+
+	def get_queryset(self):
+		return TeamUser.objects.filter(user=self.request.user).select_related('team').order_by('team__name')
+
+	def list(self, request, *args, **kwargs):
+		memberships = self.get_queryset()
+		payload = [
+			{
+				'id': membership.team.id,
+				'name': membership.team.name,
+				'url_endpoint': membership.team.url_endpoint,
+				'is_admin': membership.is_admin,
+			}
+			for membership in memberships
+		]
+		output = TeamListItemOutputSerializer(data=payload, many=True)
+		output.is_valid(raise_exception=True)
+		return Response(output.data, status=status.HTTP_200_OK)
+
+	def perform_create(self, serializer):
+		team = serializer.save()
+		TeamUser.objects.create(team=team, user=self.request.user, is_admin=True)
+
+
 # List the user's joined teams (GET) or create a new team and add the creator as an admin (POST).
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -96,25 +124,12 @@ def teams_handler(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def team_by_slug_handler(request, url_endpoint):
-	user = request.user
-
 	try:
 		team = Team.objects.get(url_endpoint=url_endpoint)
 	except Team.DoesNotExist:
 		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
 
-	membership = get_team_membership(team=team, user=user)
-
-	output = TeamBySlugOutputSerializer(
-		data={
-			'id': team.id,
-			'name': team.name,
-			'url_endpoint': team.url_endpoint,
-			'is_member': membership is not None,
-			'is_admin': membership.is_admin if membership else False,
-		}
-	)
-	output.is_valid(raise_exception=True)
+	output = TeamBySlugOutputSerializer(team, context={'request': request})
 	return Response(output.data, status=status.HTTP_200_OK)
 
 

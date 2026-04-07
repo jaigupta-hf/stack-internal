@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Team
+from .permissions import get_team_membership
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -16,12 +17,27 @@ class TeamListItemOutputSerializer(serializers.Serializer):
     is_admin = serializers.BooleanField()
 
 
-class TeamBySlugOutputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    url_endpoint = serializers.CharField()
-    is_member = serializers.BooleanField()
-    is_admin = serializers.BooleanField()
+class TeamBySlugOutputSerializer(serializers.ModelSerializer):
+    is_member = serializers.SerializerMethodField()
+    is_admin = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Team
+        fields = ['id', 'name', 'url_endpoint', 'is_member', 'is_admin']
+
+    def _membership(self, team):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return None
+        return get_team_membership(team=team, user=user)
+
+    def get_is_member(self, team):
+        return self._membership(team) is not None
+
+    def get_is_admin(self, team):
+        membership = self._membership(team)
+        return bool(membership and membership.is_admin)
 
 
 class TeamJoinOutputSerializer(serializers.Serializer):
