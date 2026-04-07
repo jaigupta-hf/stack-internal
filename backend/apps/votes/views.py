@@ -7,10 +7,11 @@ from rest_framework.response import Response
 
 from comments.models import Comment
 from posts.models import Post
-from teams.models import TeamUser
+from teams.permissions import ensure_team_membership
 from reputation.api import apply_reputation_change
 
 from .models import Vote
+from .serializers import SubmitVoteInputSerializer, VoteOutputSerializer, VoteTargetInputSerializer
 
 
 def _resolve_target(post_id, comment_id):
@@ -32,10 +33,6 @@ def _resolve_target(post_id, comment_id):
         return comment.post, comment, team, None
     except Comment.DoesNotExist:
         return None, None, None, 'Comment not found.'
-
-
-def _check_membership(user, team):
-    return TeamUser.objects.filter(team=team, user=user).exists()
 
 
 def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, current_vote_value):
@@ -105,23 +102,22 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
 def submit_vote(request):
     user = request.user
 
-    post_id = request.data.get('post_id')
-    comment_id = request.data.get('comment_id')
-    vote_value_raw = request.data.get('vote')
-    try:
-        vote_value = int(vote_value_raw)
-    except (TypeError, ValueError):
-        vote_value = None
+    input_serializer = SubmitVoteInputSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    if vote_value not in (-1, 1):
-        return Response({'error': 'vote must be either +1 or -1'}, status=status.HTTP_400_BAD_REQUEST)
+    validated = input_serializer.validated_data
+    post_id = validated.get('post_id')
+    comment_id = validated.get('comment_id')
+    vote_value = validated['vote']
 
     post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
     if target_error:
         return Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not _check_membership(user, target_team):
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=target_team, user=user)
+    if membership_error:
+        return membership_error
 
     with transaction.atomic():
         vote, created = Vote.objects.select_for_update().get_or_create(
@@ -162,15 +158,17 @@ def submit_vote(request):
                 current_vote_value=vote_value,
             )
 
-    return Response(
-        {
+    output = VoteOutputSerializer(
+        data={
             'post_id': post.id if comment is None else None,
             'comment_id': comment.id if comment else None,
             'vote': vote.vote,
             'vote_count': current_vote_count,
-        },
-        status=status.HTTP_200_OK,
+        }
     )
+    output.is_valid(raise_exception=True)
+
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -178,15 +176,21 @@ def submit_vote(request):
 def remove_vote(request):
     user = request.user
 
-    post_id = request.data.get('post_id')
-    comment_id = request.data.get('comment_id')
+    input_serializer = VoteTargetInputSerializer(data=request.data)
+    if not input_serializer.is_valid():
+        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    validated = input_serializer.validated_data
+    post_id = validated.get('post_id')
+    comment_id = validated.get('comment_id')
 
     post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
     if target_error:
         return Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not _check_membership(user, target_team):
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=target_team, user=user)
+    if membership_error:
+        return membership_error
 
     with transaction.atomic():
         try:
@@ -218,12 +222,14 @@ def remove_vote(request):
             comment.refresh_from_db(fields=['vote_count'])
             current_vote_count = comment.vote_count
 
-    return Response(
-        {
+    output = VoteOutputSerializer(
+        data={
             'post_id': post.id if comment is None else None,
             'comment_id': comment.id if comment else None,
             'vote': 0,
             'vote_count': current_vote_count,
-        },
-        status=status.HTTP_200_OK,
+        }
     )
+    output.is_valid(raise_exception=True)
+
+    return Response(output.data, status=status.HTTP_200_OK)

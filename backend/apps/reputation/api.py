@@ -1,4 +1,4 @@
-from teams.models import TeamUser
+from teams.permissions import get_team_membership
 
 from .models import ReputationHistory
 
@@ -24,7 +24,7 @@ def apply_reputation_change(*, user, team, triggered_by, post, points, reason):
     if reason not in ALLOWED_REASONS:
         return None
 
-    membership = TeamUser.objects.filter(team=team, user=user).first()
+    membership = get_team_membership(team=team, user=user)
     if not membership:
         return None
 
@@ -37,7 +37,8 @@ def apply_reputation_change(*, user, team, triggered_by, post, points, reason):
     actual_points = next_reputation - current_reputation
 
     if membership.reputation != next_reputation:
-        TeamUser.objects.filter(team=team, user=user).update(reputation=next_reputation)
+        membership.reputation = next_reputation
+        membership.save(update_fields=['reputation'])
 
     if actual_points == 0:
         return None
