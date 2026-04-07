@@ -1,5 +1,9 @@
+from datetime import timedelta
+
 from django.db import transaction
 from django.db.models import F, Max, Prefetch, Q
+from django.utils import timezone
+from rest_framework.decorators import action
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,11 +12,19 @@ from apps.pagination import parse_pagination_params, paginate_queryset
 from comments.models import Comment
 from notifications.api import create_notification
 from notifications.constants import (
+    NOTIFICATION_REASON_QUESTION_CLOSED,
+    NOTIFICATION_REASON_QUESTION_DELETED,
     NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
     NOTIFICATION_REASON_QUESTION_EDITED,
 )
 from notifications.models import Notification
 from reputation.models import Bounty
+from reputation.api import apply_reputation_change
+from reputation.constants import (
+    BOUNTY_AMOUNT,
+    REPUTATION_REASON_BOUNTY_EARNED,
+    REPUTATION_REASON_BOUNTY_OFFERED,
+)
 
 from teams.models import TeamUser
 
@@ -24,27 +36,39 @@ from tags.api import serialize_post_tags, sync_post_tags, sync_user_tags_for_pos
 from .constants import (
     ARTICLE_TYPE_TO_LABEL,
     ARTICLE_TYPE_VALUES,
+    BOUNTY_DURATION_DAYS,
+    BOUNTY_MIN_REPUTATION_BUFFER,
     DEFAULT_ARTICLE_LIST_PAGE_SIZE,
     MAX_ARTICLE_LIST_PAGE_SIZE,
 )
 from .models import Bookmark, Post
 from .models import PostFollow
 from .serializers import (
-    ArticleCommentOutputSerializer,
+    ArticleDetailModelSerializer,
+    ArticleListModelSerializer,
     ArticleCreateOutputModelSerializer,
-    ArticleDetailOutputSerializer,
-    ArticleListItemOutputSerializer,
     ArticleUpdateOutputSerializer,
     ArticleUpdateSerializer,
     CreateArticleSerializer,
+    AwardQuestionBountyInputSerializer,
     CreateQuestionOutputSerializer,
     CreateQuestionSerializer,
-    QuestionDetailOutputSerializer,
+    OfferQuestionBountyInputSerializer,
+    PostDeleteStateOutputSerializer,
+    QuestionBountyStateOutputSerializer,
+    QuestionAwardBountyOutputSerializer,
+    QuestionCloseOutputSerializer,
+    QuestionDetailModelSerializer,
+    QuestionFollowStateOutputSerializer,
+    QuestionListModelSerializer,
     QuestionUpdateSerializer,
     QuestionListOutputSerializer,
+    QuestionMentionsCreatedOutputSerializer,
+    QuestionMentionInputSerializer,
+    QuestionMentionsRemovedOutputSerializer,
+    RemoveQuestionMentionInputSerializer,
 )
 from .views_common import (
-    _display_name,
     _first_serializer_error,
     _serialize_bounty,
     _serialize_post_mentions,
@@ -80,6 +104,28 @@ class TeamScopedCrudViewSet(viewsets.ModelViewSet):
 
         return self.get_queryset().filter(id=lookup_pk).values_list('team_id', flat=True).first()
 
+    def get_user_interactions_map(self, request, post_ids):
+        if not post_ids:
+            return {}, set()
+
+        post_vote_map = {
+            item['post_id']: item['vote']
+            for item in Vote.objects.filter(
+                user=request.user,
+                post_id__in=post_ids,
+                comment__isnull=True,
+            ).values('post_id', 'vote')
+        }
+        bookmarked_post_ids = set(
+            Bookmark.objects.filter(user=request.user, post_id__in=post_ids).values_list('post_id', flat=True)
+        )
+
+        return post_vote_map, bookmarked_post_ids
+
+    def increment_post_views(self, post):
+        Post.objects.filter(id=post.id).update(views_count=F('views_count') + 1)
+        post.refresh_from_db(fields=['views_count'])
+
 
 class ArticleViewSet(TeamScopedCrudViewSet):
     """Router-backed CRUD endpoints for articles."""
@@ -107,40 +153,17 @@ class ArticleViewSet(TeamScopedCrudViewSet):
         articles, _ = paginate_queryset(articles, page=page, page_size=page_size)
 
         article_ids = [article.id for article in articles]
-        post_vote_map = {
-            item['post_id']: item['vote']
-            for item in Vote.objects.filter(
-                user=request.user,
-                post_id__in=article_ids,
-                comment__isnull=True,
-            ).values('post_id', 'vote')
-        }
-        bookmarked_post_ids = set(
-            Bookmark.objects.filter(user=request.user, post_id__in=article_ids).values_list('post_id', flat=True)
+        post_vote_map, bookmarked_post_ids = self.get_user_interactions_map(request, article_ids)
+        serializer = ArticleListModelSerializer(
+            articles,
+            many=True,
+            context={
+                'request': request,
+                'post_vote_map': post_vote_map,
+                'bookmarked_post_ids': bookmarked_post_ids,
+            },
         )
-
-        payload = [
-            {
-                'id': article.id,
-                'type': article.type,
-                'type_label': ARTICLE_TYPE_TO_LABEL.get(article.type, 'Article'),
-                'title': article.title,
-                'body': article.body,
-                'tags': serialize_post_tags(article, 'article_tag_posts'),
-                'user_name': article.user.name,
-                'created_at': article.created_at,
-                'views_count': article.views_count,
-                'vote_count': article.vote_count,
-                'bookmarks_count': article.bookmarks_count,
-                'current_user_vote': post_vote_map.get(article.id, 0),
-                'is_bookmarked': article.id in bookmarked_post_ids,
-            }
-            for article in articles
-        ]
-
-        output_serializer = ArticleListItemOutputSerializer(data=payload, many=True)
-        output_serializer.is_valid(raise_exception=True)
-        return Response(output_serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def perform_create(self, serializer):
         validated = serializer.validated_data
@@ -184,8 +207,7 @@ class ArticleViewSet(TeamScopedCrudViewSet):
 
         self.check_object_permissions(request, article)
 
-        Post.objects.filter(id=article.id).update(views_count=F('views_count') + 1)
-        article.refresh_from_db(fields=['views_count'])
+        self.increment_post_views(article)
 
         comments = (
             Comment.objects.filter(post_id=article.id)
@@ -203,54 +225,19 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             ).values('comment_id', 'vote')
         }
 
-        article_vote = (
-            Vote.objects.filter(user=request.user, post_id=article.id, comment__isnull=True)
-            .values_list('vote', flat=True)
-            .first()
+        post_vote_map, bookmarked_post_ids = self.get_user_interactions_map(request, [article.id])
+        serializer = ArticleDetailModelSerializer(
+            article,
+            context={
+                'request': request,
+                'post_vote_map': post_vote_map,
+                'bookmarked_post_ids': bookmarked_post_ids,
+                'comments': comments,
+                'comment_vote_map': comment_vote_map,
+            },
         )
-        is_bookmarked = Bookmark.objects.filter(user=request.user, post_id=article.id).exists()
 
-        comments_payload = [
-            {
-                'id': comment.id,
-                'body': comment.body,
-                'created_at': comment.created_at,
-                'modified_at': comment.modified_at,
-                'user': comment.user_id,
-                'user_name': comment.user.name,
-                'vote_count': comment.vote_count,
-                'parent_comment': comment.parent_comment_id,
-                'current_user_vote': comment_vote_map.get(comment.id, 0),
-            }
-            for comment in comments
-        ]
-
-        comment_serializer = ArticleCommentOutputSerializer(data=comments_payload, many=True)
-        comment_serializer.is_valid(raise_exception=True)
-
-        response_payload = {
-            'id': article.id,
-            'type': article.type,
-            'type_label': ARTICLE_TYPE_TO_LABEL.get(article.type, 'Article'),
-            'title': article.title,
-            'body': article.body,
-            'tags': serialize_post_tags(article, 'article_tag_posts'),
-            'user': article.user_id,
-            'user_name': article.user.name,
-            'created_at': article.created_at,
-            'modified_at': article.modified_at,
-            'views_count': article.views_count,
-            'vote_count': article.vote_count,
-            'bookmarks_count': article.bookmarks_count,
-            'current_user_vote': article_vote or 0,
-            'is_bookmarked': is_bookmarked,
-            'comments': comment_serializer.data,
-        }
-
-        detail_serializer = ArticleDetailOutputSerializer(data=response_payload)
-        detail_serializer.is_valid(raise_exception=True)
-
-        return Response(detail_serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def partial_update(self, request, pk=None, *args, **kwargs):
         article, article_error = self._get_article_for_detail_or_response(pk)
@@ -337,50 +324,20 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         admin_user_ids = set(
             TeamUser.objects.filter(team_id=team_id, user_id__in=question_user_ids, is_admin=True).values_list('user_id', flat=True)
         )
-        post_vote_map = {
-            item['post_id']: item['vote']
-            for item in Vote.objects.filter(
-                user=request.user,
-                post_id__in=question_ids,
-                comment__isnull=True,
-            ).values('post_id', 'vote')
-        }
-        bookmarked_post_ids = set(
-            Bookmark.objects.filter(user=request.user, post_id__in=question_ids).values_list('post_id', flat=True)
+        post_vote_map, bookmarked_post_ids = self.get_user_interactions_map(request, question_ids)
+
+        serializer = QuestionListModelSerializer(
+            questions,
+            many=True,
+            context={
+                'request': request,
+                'admin_user_ids': admin_user_ids,
+                'post_vote_map': post_vote_map,
+                'bookmarked_post_ids': bookmarked_post_ids,
+            },
         )
 
-        data = [
-            {
-                'id': question.id,
-                'title': question.title,
-                'body': question.body,
-                'bounty_amount': question.bounty_amount,
-                'user_id': question.user_id,
-                'user_is_admin': question.user_id in admin_user_ids,
-                'parent': question.parent_id,
-                'tags': serialize_post_tags(question, 'question_tag_posts'),
-                'answer_count': question.answer_count or 0,
-                'approved_answer': question.approved_answer_id,
-                'views_count': question.views_count,
-                'vote_count': question.vote_count,
-                'bookmarks_count': question.bookmarks_count,
-                'current_user_vote': post_vote_map.get(question.id, 0),
-                'is_bookmarked': question.id in bookmarked_post_ids,
-                'is_closed': bool(question.closed_reason),
-                'closed_reason': question.closed_reason,
-                'closed_at': question.closed_at,
-                'closed_by': question.closed_by_id,
-                'closed_by_username': question.closed_by.name if question.closed_by else None,
-                'duplicate_post_id': question.parent_id if question.closed_reason == 'duplicate' else None,
-                'duplicate_post_title': question.parent.title if question.closed_reason == 'duplicate' and question.parent else None,
-                'user_name': question.user.name,
-                'created_at': question.created_at,
-                'latest_activity_at': question.latest_answer_activity_at or question.created_at,
-            }
-            for question in questions
-        ]
-
-        output = QuestionListOutputSerializer(data={'items': data, 'pagination': pagination})
+        output = QuestionListOutputSerializer(data={'items': serializer.data, 'pagination': pagination})
         output.is_valid(raise_exception=True)
         return Response(output.data, status=status.HTTP_200_OK)
 
@@ -446,7 +403,84 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             tag_prefetch('question_tag_posts'),
         )
 
+    def _question_follow_response(self, *, question, is_following):
+        followers_count = PostFollow.objects.filter(post=question).count()
+        output = QuestionFollowStateOutputSerializer(
+            data={
+                'question_id': question.id,
+                'is_following': is_following,
+                'followers_count': followers_count,
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    def _question_close_response(
+        self,
+        *,
+        question,
+        is_closed,
+        closed_reason,
+        closed_at,
+        closed_by,
+        closed_by_username,
+        duplicate_post_id,
+        duplicate_post_title,
+    ):
+        output = QuestionCloseOutputSerializer(
+            data={
+                'id': question.id,
+                'is_closed': is_closed,
+                'closed_reason': closed_reason,
+                'closed_at': closed_at,
+                'closed_by': closed_by,
+                'closed_by_username': closed_by_username,
+                'duplicate_post_id': duplicate_post_id,
+                'duplicate_post_title': duplicate_post_title,
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    def _question_delete_state_response(self, *, question, is_deleted):
+        output = PostDeleteStateOutputSerializer(
+            data={
+                'id': question.id,
+                'delete_flag': is_deleted,
+                'is_deleted': is_deleted,
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
     def _build_question_detail_response(self, request, question):
+        answer_posts = getattr(question, 'answer_posts', [])
+        post_ids = [question.id, *[answer.id for answer in answer_posts]]
+
+        comments = (
+            Comment.objects.filter(post_id__in=post_ids)
+            .select_related('user')
+            .order_by('created_at')
+        )
+
+        # Resolve all team display names with one TeamUser query to avoid per-item lookups.
+        display_name_user_ids = {question.user_id}
+        if question.closed_by_id:
+            display_name_user_ids.add(question.closed_by_id)
+        display_name_user_ids.update(answer.user_id for answer in answer_posts)
+        display_name_user_ids.update(comment.user_id for comment in comments)
+
+        display_name_by_user_id = {
+            membership.user_id: membership.user.name
+            for membership in TeamUser.objects.filter(
+                team_id=question.team_id,
+                user_id__in=display_name_user_ids,
+            ).select_related('user')
+        }
+
+        def display_name_for(user_id):
+            return display_name_by_user_id.get(user_id, 'deleted user')
+
         # Keep user display names consistent with existing team display rules.
         def serialize_comment(comment):
             return {
@@ -455,33 +489,19 @@ class QuestionViewSet(TeamScopedCrudViewSet):
                 'created_at': comment.created_at,
                 'modified_at': comment.modified_at,
                 'user': comment.user_id,
-                'user_name': _display_name(question.team_id, comment.user_id),
+                'user_name': display_name_for(comment.user_id),
                 'vote_count': comment.vote_count,
                 'parent_comment': comment.parent_comment_id,
             }
 
-        answer_posts = getattr(question, 'answer_posts', [])
-        post_ids = [question.id, *[answer.id for answer in answer_posts]]
-        is_bookmarked = Bookmark.objects.filter(user=request.user, post_id=question.id).exists()
-        comments = (
-            Comment.objects.filter(post_id__in=post_ids)
-            .select_related('user')
-            .order_by('created_at')
-        )
+        post_vote_map, bookmarked_post_ids = self.get_user_interactions_map(request, post_ids)
+        is_bookmarked = question.id in bookmarked_post_ids
 
         comments_by_post_id = {}
         for comment in comments:
             comments_by_post_id.setdefault(comment.post_id, []).append(serialize_comment(comment))
 
         comment_ids = [comment.id for comment in comments]
-        post_vote_map = {
-            item['post_id']: item['vote']
-            for item in Vote.objects.filter(
-                user=request.user,
-                post_id__in=post_ids,
-                comment__isnull=True,
-            ).values('post_id', 'vote')
-        }
         comment_vote_map = {
             item['comment_id']: item['vote']
             for item in Vote.objects.filter(
@@ -495,77 +515,26 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             for comment in post_comments:
                 comment['current_user_vote'] = comment_vote_map.get(comment['id'], 0)
 
-        answers_payload = [
-            {
-                'id': answer.id,
-                'body': answer.body,
-                'delete_flag': answer.delete_flag,
-                'created_at': answer.created_at,
-                'modified_at': answer.modified_at,
-                'user': answer.user_id,
-                'user_name': _display_name(question.team_id, answer.user_id),
-                'edited_by': answer.edited_by_id,
-                'edited_by_username': answer.edited_by.name if answer.edited_by else None,
-                'vote_count': answer.vote_count,
-                'current_user_vote': post_vote_map.get(answer.id, 0),
-                'comments': comments_by_post_id.get(answer.id, []),
-            }
-            for answer in answer_posts
-        ]
-
-        tags_payload = serialize_post_tags(question, 'question_tag_posts')
         mentions_payload = _serialize_post_mentions(question)
         is_following = PostFollow.objects.filter(post=question, user=request.user).exists()
         followers_count = PostFollow.objects.filter(post=question).count()
         bounty = Bounty.objects.filter(post=question).order_by('-start_time').first()
 
-        response_payload = {
-            'id': question.id,
-            'title': question.title,
-            'body': question.body,
-            'delete_flag': question.delete_flag,
-            'bounty_amount': question.bounty_amount,
-            'parent': question.parent_id,
-            'created_at': question.created_at,
-            'modified_at': question.modified_at,
-            'team': question.team_id,
-            'user': question.user_id,
-            'user_name': _display_name(question.team_id, question.user_id),
-            'edited_by': question.edited_by_id,
-            'edited_by_username': question.edited_by.name if question.edited_by else None,
-            'views_count': question.views_count,
-            'vote_count': question.vote_count,
-            'bookmarks_count': question.bookmarks_count,
-            'current_user_vote': post_vote_map.get(question.id, 0),
-            'approved_answer': question.approved_answer_id,
-            'can_approve_answers': question.user_id == request.user.id and not question.delete_flag,
-            'is_following': is_following,
-            'followers_count': followers_count,
-            'is_bookmarked': is_bookmarked,
-            'is_closed': bool(question.closed_reason),
-            'closed_reason': question.closed_reason,
-            'closed_at': question.closed_at,
-            'closed_by': question.closed_by_id,
-            'closed_by_username': _display_name(question.team_id, question.closed_by_id) if question.closed_by else None,
-            'duplicate_post_id': question.parent_id if question.closed_reason == 'duplicate' else None,
-            'duplicate_post_title': question.parent.title if question.closed_reason == 'duplicate' and question.parent else None,
-            'tags': tags_payload,
-            'mentions': mentions_payload,
-            'bounty': _serialize_bounty(bounty),
-            'can_offer_bounty': (
-                question.user_id == request.user.id
-                and not question.delete_flag
-                and not bool(question.closed_reason)
-                and (question.bounty_amount or 0) == 0
-            ),
-            'can_award_bounty': question.user_id == request.user.id and (question.bounty_amount or 0) > 0,
-            'comments': comments_by_post_id.get(question.id, []),
-            'answers': answers_payload,
-        }
-
-        output = QuestionDetailOutputSerializer(data=response_payload)
-        output.is_valid(raise_exception=True)
-        return Response(output.data, status=status.HTTP_200_OK)
+        serializer = QuestionDetailModelSerializer(
+            question,
+            context={
+                'request': request,
+                'display_name_by_user_id': display_name_by_user_id,
+                'post_vote_map': post_vote_map,
+                'is_bookmarked': is_bookmarked,
+                'is_following': is_following,
+                'followers_count': followers_count,
+                'mentions_payload': mentions_payload,
+                'bounty_payload': _serialize_bounty(bounty),
+                'comments_by_post_id': comments_by_post_id,
+            },
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def retrieve(self, request, pk=None, *args, **kwargs):
         try:
@@ -575,8 +544,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
         self.check_object_permissions(request, question)
 
-        Post.objects.filter(id=question.id).update(views_count=F('views_count') + 1)
-        question.refresh_from_db(fields=['views_count'])
+        self.increment_post_views(question)
 
         return self._build_question_detail_response(request, question)
 
@@ -618,3 +586,347 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         self.check_object_permissions(request, question)
 
         return self._build_question_detail_response(request, question)
+
+    @action(detail=True, methods=['post'], url_path='follow')
+    def follow(self, request, pk=None):
+        question = self.get_object()
+        PostFollow.objects.get_or_create(post=question, user=request.user)
+        return self._question_follow_response(question=question, is_following=True)
+
+    @action(detail=True, methods=['post'], url_path='unfollow')
+    def unfollow(self, request, pk=None):
+        question = self.get_object()
+        PostFollow.objects.filter(post=question, user=request.user).delete()
+        return self._question_follow_response(question=question, is_following=False)
+
+    @action(detail=True, methods=['post'], url_path='mentions')
+    def add_mentions(self, request, pk=None):
+        question = self.get_object()
+
+        mention_input_serializer = QuestionMentionInputSerializer(data=request.data)
+        if not mention_input_serializer.is_valid():
+            return Response(
+                {'error': _first_serializer_error(mention_input_serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        parsed_user_ids = mention_input_serializer.validated_data['user_ids']
+
+        if request.user.id in parsed_user_ids:
+            return Response({'error': 'You cannot mention yourself'}, status=status.HTTP_400_BAD_REQUEST)
+
+        member_ids = set(
+            TeamUser.objects.filter(team=question.team, user_id__in=parsed_user_ids).values_list('user_id', flat=True)
+        )
+        missing_user_ids = sorted(set(parsed_user_ids) - member_ids)
+        if missing_user_ids:
+            return Response(
+                {'error': 'Some users are not members of this team', 'missing_user_ids': missing_user_ids},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_count = 0
+        for target_user_id in parsed_user_ids:
+            mention, created = Notification.objects.get_or_create(
+                post=question,
+                user_id=target_user_id,
+                reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
+                defaults={'triggered_by': request.user},
+            )
+            if created:
+                created_count += 1
+            elif mention.triggered_by_id != request.user.id:
+                mention.triggered_by = request.user
+                mention.save(update_fields=['triggered_by'])
+
+        output = QuestionMentionsCreatedOutputSerializer(
+            data={
+                'created_count': created_count,
+                'mentions': _serialize_post_mentions(question),
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='bounty/offer')
+    def offer_bounty(self, request, pk=None):
+        question = self.get_object()
+
+        if question.user_id != request.user.id:
+            return Response({'error': 'Only the question author can offer bounty'}, status=status.HTTP_403_FORBIDDEN)
+
+        if question.delete_flag:
+            return Response({'error': 'Cannot offer bounty on a deleted question'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if question.closed_reason:
+            return Response({'error': 'Cannot offer bounty on a closed question'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if (question.bounty_amount or 0) > 0:
+            return Response({'error': 'This question already has an active bounty'}, status=status.HTTP_400_BAD_REQUEST)
+
+        bounty_input_serializer = OfferQuestionBountyInputSerializer(data=request.data)
+        if not bounty_input_serializer.is_valid():
+            return Response(
+                {'error': _first_serializer_error(bounty_input_serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        reason = bounty_input_serializer.validated_data['reason']
+
+        membership = TeamUser.objects.filter(team=question.team, user=request.user).first()
+        current_reputation = membership.reputation if membership and membership.reputation and membership.reputation > 0 else 1
+        if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
+            return Response(
+                {'error': f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to offer this bounty.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            start_time = timezone.now()
+            end_time = start_time + timedelta(days=BOUNTY_DURATION_DAYS)
+            bounty = Bounty.objects.create(
+                post=question,
+                offered_by=request.user,
+                awarded_answer=None,
+                amount=BOUNTY_AMOUNT,
+                status=Bounty.STATUS_OFFERED,
+                reason=reason,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            Post.objects.filter(id=question.id).update(bounty_amount=BOUNTY_AMOUNT)
+            question.refresh_from_db(fields=['bounty_amount'])
+
+        output = QuestionBountyStateOutputSerializer(
+            data={
+                'question_id': question.id,
+                'bounty_amount': question.bounty_amount,
+                'bounty': _serialize_bounty(bounty),
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='bounty/award')
+    def award_bounty(self, request, pk=None):
+        question = self.get_object()
+
+        if question.user_id != request.user.id:
+            return Response({'error': 'Only the question author can award bounty'}, status=status.HTTP_403_FORBIDDEN)
+
+        if (question.bounty_amount or 0) <= 0:
+            return Response({'error': 'No active bounty to award'}, status=status.HTTP_400_BAD_REQUEST)
+
+        bounty_award_input_serializer = AwardQuestionBountyInputSerializer(data=request.data)
+        if not bounty_award_input_serializer.is_valid():
+            return Response(
+                {'error': _first_serializer_error(bounty_award_input_serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        answer_id = bounty_award_input_serializer.validated_data['answer_id']
+
+        try:
+            answer = Post.objects.select_related('user').get(id=answer_id, type=1, parent_id=question.id, delete_flag=False)
+        except Post.DoesNotExist:
+            return Response({'error': 'Answer not found for this question'}, status=status.HTTP_404_NOT_FOUND)
+
+        membership = TeamUser.objects.filter(team=question.team, user=request.user).first()
+        current_reputation = membership.reputation if membership and membership.reputation and membership.reputation > 0 else 1
+        if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
+            return Response(
+                {'error': f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to award this bounty.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            bounty = (
+                Bounty.objects.select_for_update()
+                .filter(post=question, status=Bounty.STATUS_OFFERED)
+                .order_by('-start_time')
+                .first()
+            )
+            if not bounty:
+                return Response({'error': 'No offered bounty found for this question'}, status=status.HTTP_400_BAD_REQUEST)
+
+            bounty.status = Bounty.STATUS_EARNED
+            bounty.awarded_answer = answer
+            bounty.end_time = timezone.now()
+            bounty.save(update_fields=['status', 'awarded_answer', 'end_time'])
+
+            Post.objects.filter(id=question.id).update(bounty_amount=0)
+            question.refresh_from_db(fields=['bounty_amount'])
+
+            apply_reputation_change(
+                user=question.user,
+                team=question.team,
+                triggered_by=request.user,
+                post=question,
+                points=-BOUNTY_AMOUNT,
+                reason=REPUTATION_REASON_BOUNTY_OFFERED,
+            )
+            apply_reputation_change(
+                user=answer.user,
+                team=question.team,
+                triggered_by=request.user,
+                post=answer,
+                points=BOUNTY_AMOUNT,
+                reason=REPUTATION_REASON_BOUNTY_EARNED,
+            )
+
+        output = QuestionAwardBountyOutputSerializer(
+            data={
+                'question_id': question.id,
+                'bounty_amount': question.bounty_amount,
+                'bounty': _serialize_bounty(bounty),
+                'awarded_answer_id': answer.id,
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='close')
+    def close(self, request, pk=None):
+        question = self.get_object()
+
+        if question.delete_flag:
+            return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if question.closed_reason:
+            return Response({'error': 'Question is already closed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reason_value = str(request.data.get('reason', '')).strip().lower()
+        if reason_value in ('off_topic', 'offtopic'):
+            reason_value = 'off-topic'
+
+        if reason_value not in ('duplicate', 'off-topic'):
+            return Response({'error': 'reason must be either duplicate or off-topic'}, status=status.HTTP_400_BAD_REQUEST)
+
+        duplicate_question = None
+        duplicate_post_id_value = None
+        duplicate_post_title_value = None
+        if reason_value == 'duplicate':
+            duplicate_post_id = request.data.get('duplicate_post_id')
+            if not duplicate_post_id:
+                return Response({'error': 'duplicate_post_id is required for duplicate close reason'}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                duplicate_post_id = int(duplicate_post_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'duplicate_post_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if duplicate_post_id == question.id:
+                return Response({'error': 'A question cannot be duplicate of itself'}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                duplicate_question = Post.objects.get(id=duplicate_post_id, team=question.team, type=0, delete_flag=False)
+            except Post.DoesNotExist:
+                return Response({'error': 'Duplicate reference question not found in this team'}, status=status.HTTP_404_NOT_FOUND)
+
+            duplicate_post_id_value = duplicate_question.id
+            duplicate_post_title_value = duplicate_question.title
+
+        closed_at = timezone.now()
+        Post.objects.filter(id=question.id).update(
+            closed_reason=reason_value,
+            closed_by=request.user,
+            closed_at=closed_at,
+            parent=duplicate_question if reason_value == 'duplicate' else None,
+        )
+        create_notification(
+            post=question,
+            user=question.user,
+            triggered_by=request.user,
+            reason=NOTIFICATION_REASON_QUESTION_CLOSED,
+        )
+
+        return self._question_close_response(
+            question=question,
+            is_closed=True,
+            closed_reason=reason_value,
+            closed_at=closed_at,
+            closed_by=request.user.id,
+            closed_by_username=request.user.name,
+            duplicate_post_id=duplicate_post_id_value,
+            duplicate_post_title=duplicate_post_title_value,
+        )
+
+    @action(detail=True, methods=['post'], url_path='mentions/remove')
+    def remove_mention(self, request, pk=None):
+        question = self.get_object()
+
+        if question.user_id != request.user.id:
+            return Response({'error': 'Only the question author can remove mentions'}, status=status.HTTP_403_FORBIDDEN)
+
+        remove_input_serializer = RemoveQuestionMentionInputSerializer(data=request.data)
+        if not remove_input_serializer.is_valid():
+            return Response(
+                {'error': _first_serializer_error(remove_input_serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        target_user_id = remove_input_serializer.validated_data['user_id']
+
+        removed_count, _ = Notification.objects.filter(
+            post=question,
+            user_id=target_user_id,
+            reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
+        ).delete()
+
+        output = QuestionMentionsRemovedOutputSerializer(
+            data={
+                'removed_count': removed_count,
+                'mentions': _serialize_post_mentions(question),
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='reopen')
+    def reopen(self, request, pk=None):
+        question = self.get_object()
+
+        if question.delete_flag:
+            return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not question.closed_reason:
+            return Response({'error': 'Question is not closed.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        Post.objects.filter(id=question.id).update(
+            closed_reason='',
+            closed_by=None,
+            closed_at=None,
+            parent=None,
+        )
+
+        return self._question_close_response(
+            question=question,
+            is_closed=False,
+            closed_reason='',
+            closed_at=None,
+            closed_by=None,
+            closed_by_username=None,
+            duplicate_post_id=None,
+            duplicate_post_title=None,
+        )
+
+    @action(detail=True, methods=['post'], url_path='delete')
+    def mark_deleted(self, request, pk=None):
+        question = self.get_object()
+
+        if not question.delete_flag:
+            Post.objects.filter(id=question.id).update(delete_flag=True)
+            create_notification(
+                post=question,
+                user=question.user,
+                triggered_by=request.user,
+                reason=NOTIFICATION_REASON_QUESTION_DELETED,
+            )
+
+        return self._question_delete_state_response(question=question, is_deleted=True)
+
+    @action(detail=True, methods=['post'], url_path='undelete')
+    def undelete(self, request, pk=None):
+        question = self.get_object()
+
+        if question.delete_flag:
+            Post.objects.filter(id=question.id).update(delete_flag=False)
+
+        return self._question_delete_state_response(question=question, is_deleted=False)
