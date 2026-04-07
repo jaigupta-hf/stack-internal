@@ -1,6 +1,7 @@
 from .permissions import get_team_membership
 
 
+# Handle get team member name.
 def get_team_member_name(team_id, user_id, default_name='deleted user'):
     membership = get_team_membership(team_id=team_id, user_id=user_id, select_related_user=True)
     if not membership:

@@ -14,11 +14,13 @@ from .serializers import (
 from teams.permissions import IsTeamMemberForNotification, IsTeamMemberFromRequest
 
 
+# Serve the current user's notifications for a team with unread count summary.
 class NotificationListView(GenericAPIView):
     permission_classes = [IsAuthenticated, IsTeamMemberFromRequest]
     serializer_class = TeamIdInputSerializer
     team_id_location = 'query_params'
 
+    # Validate team scope, fetch recent notifications, and return list + unread aggregate.
     def get(self, request):
         input_serializer = self.get_serializer(data=request.query_params)
         input_serializer.is_valid(raise_exception=True)
@@ -42,19 +44,23 @@ class NotificationListView(GenericAPIView):
         return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Provide shared helpers and workflow to toggle a single notification read/unread state.
 class NotificationReadStateView(GenericAPIView):
     permission_classes = [IsAuthenticated, IsTeamMemberForNotification]
 
+    # Load one notification owned by the current user, or return None when it does not exist.
     def _get_notification(self, notification_id, user):
         try:
             return Notification.objects.select_related('post').get(id=notification_id, user=user)
         except Notification.DoesNotExist:
             return None
 
+    # Build a standardized read-state response payload for notification toggle endpoints.
     def _respond(self, notification):
         payload = NotificationReadStateSerializer({'id': notification.id, 'is_read': notification.is_read}).data
         return Response(payload, status=status.HTTP_200_OK)
 
+    # Toggle read status for one notification after membership/object permission checks.
     def post(self, request, notification_id, mark_as_read):
         notification = self._get_notification(notification_id, request.user)
         if notification is None:
@@ -69,21 +75,27 @@ class NotificationReadStateView(GenericAPIView):
         return self._respond(notification)
 
 
+# Mark a single notification as read for the current user.
 class MarkNotificationReadView(NotificationReadStateView):
+    # Delegate to the shared toggle flow with mark_as_read=True.
     def post(self, request, notification_id):
         return super().post(request, notification_id, mark_as_read=True)
 
 
+# Mark a single notification as unread for the current user.
 class MarkNotificationUnreadView(NotificationReadStateView):
+    # Delegate to the shared toggle flow with mark_as_read=False.
     def post(self, request, notification_id):
         return super().post(request, notification_id, mark_as_read=False)
 
 
+# Mark all unread notifications as read for the current user within one team.
 class MarkAllNotificationsReadView(GenericAPIView):
     permission_classes = [IsAuthenticated, IsTeamMemberFromRequest]
     serializer_class = TeamIdInputSerializer
     team_id_location = 'data'
 
+    # Validate team scope and bulk-update unread notifications to read, returning affected count.
     def post(self, request):
         input_serializer = self.get_serializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)

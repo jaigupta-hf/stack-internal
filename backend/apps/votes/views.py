@@ -28,6 +28,7 @@ from .models import Vote
 from .serializers import SubmitVoteInputSerializer, VoteOutputSerializer, VoteTargetInputSerializer
 
 
+# Resolve a vote target (post or comment), derive its team scope, and return user-facing validation errors.
 def _resolve_target(post_id, comment_id):
     if bool(post_id) == bool(comment_id):
         return None, None, None, 'Exactly one of post_id or comment_id is required.'
@@ -49,6 +50,7 @@ def _resolve_target(post_id, comment_id):
         return None, None, None, 'Comment not found.'
 
 
+# Apply reputation deltas for post votes when transitioning between upvote/downvote/neutral states.
 def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, current_vote_value):
     if post.type not in (0, 1):
         return
@@ -111,6 +113,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
         )
 
 
+# Create or update a vote on a post/comment, update aggregate vote counts, and apply post reputation effects.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def submit_vote(request):
@@ -185,6 +188,7 @@ def submit_vote(request):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Remove an existing vote from a post/comment, rollback aggregate counts, and reverse post reputation effects.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_vote(request):

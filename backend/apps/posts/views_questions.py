@@ -49,6 +49,7 @@ from .views_common import (
 )
 
 
+# Handle list questions.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_questions(request):
@@ -130,6 +131,7 @@ def list_questions(request):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle search questions.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_questions(request):
@@ -168,6 +170,7 @@ def search_questions(request):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle search global titles.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_global_titles(request):
@@ -245,6 +248,7 @@ def search_global_titles(request):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle close question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def close_question(request, question_id):
@@ -323,6 +327,7 @@ def close_question(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle reopen question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def reopen_question(request, question_id):
@@ -363,6 +368,7 @@ def reopen_question(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle delete question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def delete_question(request, question_id):
@@ -397,6 +403,7 @@ def delete_question(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle undelete question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def undelete_question(request, question_id):
@@ -425,6 +432,7 @@ def undelete_question(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle question detail.
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def question_detail(request, question_id):
@@ -514,6 +522,7 @@ def question_detail(request, question_id):
         Post.objects.filter(id=question.id).update(views_count=F('views_count') + 1)
         question.refresh_from_db(fields=['views_count'])
 
+    # Handle serialize comment.
     def serialize_comment(comment):
         return {
             'id': comment.id,

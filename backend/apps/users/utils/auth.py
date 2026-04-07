@@ -6,6 +6,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from ..models import User
 
 
+# Generate a signed JWT containing user identity claims and a 7-day expiration.
 def generate_jwt_token(user_email, user_id):
     payload = {
         'user_id': user_id,
@@ -16,6 +17,7 @@ def generate_jwt_token(user_email, user_id):
     return jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
 
 
+# Decode and validate a JWT, returning claims when valid or None when expired/invalid.
 def verify_jwt_token(token):
     try:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
@@ -23,9 +25,11 @@ def verify_jwt_token(token):
         return None
 
 
+# Authenticate API requests using a Bearer JWT and resolve the corresponding app user.
 class JWTAppUserAuthentication(BaseAuthentication):
     keyword = 'Bearer'
 
+    # Parse Authorization header, verify token claims, and return (user, payload) for DRF auth context.
     def authenticate(self, request):
         auth_header = get_authorization_header(request).decode('utf-8')
         if not auth_header:
@@ -46,5 +50,6 @@ class JWTAppUserAuthentication(BaseAuthentication):
 
         return (user, payload)
 
+    # Advertise the expected auth scheme for authentication challenge responses.
     def authenticate_header(self, request):
         return self.keyword

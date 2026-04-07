@@ -3,6 +3,7 @@ from .constants import MIN_REPUTATION, REPUTATION_REASON_VALUES
 
 from .models import ReputationHistory
 
+# Handle apply reputation change.
 def apply_reputation_change(*, user, team, triggered_by, post, points, reason):
     if points == 0:
         return None

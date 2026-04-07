@@ -20,6 +20,7 @@ from posts.models import Post
 from posts.constants import ARTICLE_TYPE_VALUES, POST_TYPE_TO_KEY, POST_TYPE_TO_LABEL
 
 
+# Verify a Google OAuth token, upsert the local user, and return app JWT credentials.
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def google_auth(request):
@@ -75,6 +76,7 @@ def google_auth(request):
         )
 
 
+# Return the authenticated user's basic profile payload and refresh last-seen timestamp.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_current_user(request):
@@ -90,6 +92,7 @@ def get_current_user(request):
     return Response(serializer.data)
 
 
+# Return a stateless logout acknowledgment (JWT invalidation is handled client-side).
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def logout_user(request):
@@ -100,6 +103,7 @@ def logout_user(request):
     return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
 
 
+# Read or partially update a user's team-scoped profile, activities, and tag-usage summary.
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def get_profile(request):

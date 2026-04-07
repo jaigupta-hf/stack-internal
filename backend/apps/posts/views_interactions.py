@@ -36,6 +36,7 @@ from .views_common import (
 )
 
 
+# Handle offer question bounty.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def offer_question_bounty(request, question_id):
@@ -104,6 +105,7 @@ def offer_question_bounty(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle award question bounty.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def award_question_bounty(request, question_id):
@@ -191,6 +193,7 @@ def award_question_bounty(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle follow question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def follow_question(request, question_id):
@@ -220,6 +223,7 @@ def follow_question(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle unfollow question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def unfollow_question(request, question_id):
@@ -249,6 +253,7 @@ def unfollow_question(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle add question mentions.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_question_mentions(request, question_id):
@@ -327,6 +332,7 @@ def add_question_mentions(request, question_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle remove question mention.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_question_mention(request, question_id):

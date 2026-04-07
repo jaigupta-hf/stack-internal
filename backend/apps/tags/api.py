@@ -5,12 +5,14 @@ from django.db.models.functions import Coalesce, Greatest
 from .models import Tag, TagPost, TagUser
 
 
+# Helper to count field for post type.
 def _count_field_for_post_type(post_type):
     if int(post_type) == 0:
         return 'question_count'
     return 'article_count'
 
 
+# Handle normalize tag names.
 def normalize_tag_names(tag_names):
     normalized_tags = []
     seen = set()
@@ -30,6 +32,7 @@ def normalize_tag_names(tag_names):
     return normalized_tags
 
 
+# Handle tag prefetch.
 def tag_prefetch(to_attr='question_tag_posts'):
     return Prefetch(
         'tag_posts',
@@ -38,6 +41,7 @@ def tag_prefetch(to_attr='question_tag_posts'):
     )
 
 
+# Handle serialize post tags.
 def serialize_post_tags(post, prefetched_attr='question_tag_posts'):
     return [
         {
@@ -48,6 +52,7 @@ def serialize_post_tags(post, prefetched_attr='question_tag_posts'):
     ]
 
 
+# Handle sync post tags.
 @transaction.atomic
 def sync_post_tags(post, tag_names):
     normalized_tags = normalize_tag_names(tag_names)
@@ -87,6 +92,7 @@ def sync_post_tags(post, tag_names):
             Tag.objects.filter(id=tag.id).update(**{count_field: Coalesce(F(count_field), 0) + 1})
 
 
+# Handle sync user tags for post.
 def sync_user_tags_for_post(user, post):
     tag_ids = list(TagPost.objects.filter(post=post).values_list('tag_id', flat=True).distinct())
     if not tag_ids:

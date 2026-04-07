@@ -30,6 +30,7 @@ from .constants import (
 from .views_common import _first_serializer_error
 
 
+# Handle create article.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_article(request):
@@ -87,6 +88,7 @@ def create_article(request):
     )
 
 
+# Handle list articles.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_articles(request):
@@ -152,6 +154,7 @@ def list_articles(request):
     return Response(output_serializer.data, status=status.HTTP_200_OK)
 
 
+# Handle article detail.
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def article_detail(request, article_id):

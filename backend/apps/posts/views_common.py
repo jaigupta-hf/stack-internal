@@ -9,10 +9,12 @@ from .constants import ARTICLE_TYPE_TO_LABEL, BOUNTY_REASON_OPTIONS
 from .models import PostFollow
 
 
+# Helper to display name.
 def _display_name(team_id, user_id):
     return get_team_member_name(team_id, user_id)
 
 
+# Helper to serialize post mentions.
 def _serialize_post_mentions(question):
     mentions = getattr(question, 'mention_notifications', None)
     if mentions is None:
@@ -35,6 +37,7 @@ def _serialize_post_mentions(question):
     ]
 
 
+# Helper to notify question followers.
 def _notify_question_followers(*, question, triggered_by, reason):
     follower_ids = list(PostFollow.objects.filter(post=question).values_list('user_id', flat=True))
     if not follower_ids:
@@ -58,6 +61,7 @@ def _notify_question_followers(*, question, triggered_by, reason):
         )
 
 
+# Helper to serialize bounty.
 def _serialize_bounty(bounty):
     if not bounty:
         return None
@@ -75,6 +79,7 @@ def _serialize_bounty(bounty):
     }
 
 
+# Helper to first serializer error.
 def _first_serializer_error(errors):
     if isinstance(errors, dict):
         if not errors:
