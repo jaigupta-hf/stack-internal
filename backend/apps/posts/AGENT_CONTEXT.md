@@ -15,7 +15,6 @@ It handles:
 - `views.py`: primary entry module; also re-exports handlers from submodules.
 - `views_questions.py`: question read/search/update and moderation flows.
 - `viewsets.py`: router-backed article/question list/create/detail/update endpoints.
-- `views_interactions.py`: follow, mentions, bounty offer/award.
 - `views_bookmarks.py`: bookmark and follows list endpoints.
 - `views_common.py`: shared helpers/constants.
 - `serializers.py`: large input/output schema surface.
@@ -86,7 +85,7 @@ Base path: `/api/posts/`
 - Counter fields (`answer_count`, `vote_count`, `bookmarks_count`, `views_count`) updated incrementally.
 
 ## Developer Guidance
-- Keep module split boundaries (questions/articles/interactions/bookmarks) intact.
+- Keep module split boundaries (questions/articles/bookmarks) intact.
 - Wrap multi-model writes in `transaction.atomic()`.
 - Reuse serializer contracts for stable response shape.
 - Preserve membership checks before any team-scoped read/write.
