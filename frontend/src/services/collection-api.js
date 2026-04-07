@@ -1,4 +1,4 @@
-import { api, asList } from './config';
+import { api, asList, withPaginationParams } from './config';
 
 export const collectionService = {
   async createCollection(payload) {
@@ -6,11 +6,16 @@ export const collectionService = {
     return response.data;
   },
 
-  async listCollections(teamId) {
+  async listCollectionsPage(teamId, options = {}) {
     const response = await api.get('/collections/list/', {
-      params: { team_id: teamId },
+      params: withPaginationParams({ team_id: teamId }, options),
     });
-    return asList(response.data);
+    return response.data;
+  },
+
+  async listCollections(teamId, options = {}) {
+    const payload = await this.listCollectionsPage(teamId, options);
+    return asList(payload);
   },
 
   async getCollectionDetail(collectionId) {

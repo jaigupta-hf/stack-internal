@@ -2,6 +2,8 @@
 
 This document covers the HTTP API exposed by the Django backend.
 
+Related: frontend integration mapping and pagination usage is documented in `docs/FRONTEND_BACKEND_INTEGRATION.md`.
+
 ## Base URL
 
 - Local: `http://localhost:3000`
