@@ -86,40 +86,6 @@ class TeamsListCreateView(generics.ListCreateAPIView):
 		TeamUser.objects.create(team=team, user=self.request.user, is_admin=True)
 
 
-# List the user's joined teams (GET) or create a new team and add the creator as an admin (POST).
-@api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
-def teams_handler(request):
-	user = request.user
-
-	if request.method == 'GET':
-		memberships = (
-			TeamUser.objects.filter(user=user)
-			.select_related('team')
-			.order_by('team__name')
-		)
-		data = [
-			{
-				'id': membership.team.id,
-				'name': membership.team.name,
-				'url_endpoint': membership.team.url_endpoint,
-				'is_admin': membership.is_admin,
-			}
-			for membership in memberships
-		]
-		output = TeamListItemOutputSerializer(data=data, many=True)
-		output.is_valid(raise_exception=True)
-		return Response(output.data, status=status.HTTP_200_OK)
-
-	serializer = TeamSerializer(data=request.data)
-	if not serializer.is_valid():
-		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-	team = serializer.save()
-	TeamUser.objects.create(team=team, user=user, is_admin=True)
-	return Response(TeamSerializer(team).data, status=status.HTTP_201_CREATED)
-
-
 # Look up a team by slug and return membership/admin flags for the current user.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

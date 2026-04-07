@@ -14,7 +14,7 @@ It handles:
 - `models.py`: `Post`, `Bookmark`, `PostFollow`.
 - `views.py`: primary entry module; also re-exports handlers from submodules.
 - `views_questions.py`: question read/search/update and moderation flows.
-- `views_articles.py`: article create/list/detail/edit.
+- `viewsets.py`: router-backed article/question list/create/detail/update endpoints.
 - `views_interactions.py`: follow, mentions, bounty offer/award.
 - `views_bookmarks.py`: bookmark and follows list endpoints.
 - `views_common.py`: shared helpers/constants.
