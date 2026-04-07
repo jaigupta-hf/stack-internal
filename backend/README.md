@@ -64,6 +64,18 @@ backend/
 - Full endpoint reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 - Root route mapping: [config/urls.py](config/urls.py)
 
+## App Context Files
+
+- [apps/users/AGENT_CONTEXT.md](apps/users/AGENT_CONTEXT.md)
+- [apps/teams/AGENT_CONTEXT.md](apps/teams/AGENT_CONTEXT.md)
+- [apps/posts/AGENT_CONTEXT.md](apps/posts/AGENT_CONTEXT.md)
+- [apps/tags/AGENT_CONTEXT.md](apps/tags/AGENT_CONTEXT.md)
+- [apps/notifications/AGENT_CONTEXT.md](apps/notifications/AGENT_CONTEXT.md)
+- [apps/comments/AGENT_CONTEXT.md](apps/comments/AGENT_CONTEXT.md)
+- [apps/reputation/AGENT_CONTEXT.md](apps/reputation/AGENT_CONTEXT.md)
+- [apps/collections/AGENT_CONTEXT.md](apps/collections/AGENT_CONTEXT.md)
+- [apps/votes/AGENT_CONTEXT.md](apps/votes/AGENT_CONTEXT.md)
+
 ## API Surface Summary
 
 - `/api/users/`: auth and profiles
