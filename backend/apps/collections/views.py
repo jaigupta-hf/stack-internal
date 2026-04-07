@@ -25,6 +25,93 @@ from .serializers import (
     CreateCollectionSerializer,
 )
 
+
+# Build shared collection summary fields used by list/create/detail responses.
+def _collection_summary_payload(collection, *, post_count):
+    return {
+        'id': collection.id,
+        'title': collection.title,
+        'description': collection.description,
+        'team': collection.team_id,
+        'user': collection.user_id,
+        'user_name': collection.user.name,
+        'created_at': collection.created_at,
+        'modified_at': collection.modified_at,
+        'views_count': collection.views_count,
+        'post_count': post_count,
+        'bookmarks_count': collection.bookmarks_count,
+    }
+
+
+# Build payload for a post row inside collection detail/add responses.
+def _collection_post_payload(post, *, sequence_number):
+    return {
+        'post_id': post.id,
+        'type': post.type,
+        'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
+        'title': post.title,
+        'sequence_number': sequence_number,
+        'user_name': post.user.name,
+        'created_at': post.created_at,
+    }
+
+
+# Build payload for a comment row inside collection responses.
+def _collection_comment_payload(comment, *, user_name, current_user_vote):
+    return {
+        'id': comment.id,
+        'collection_id': comment.collection_id,
+        'body': comment.body,
+        'created_at': comment.created_at,
+        'modified_at': comment.modified_at,
+        'user': comment.user_id,
+        'user_name': user_name,
+        'vote_count': comment.vote_count,
+        'parent_comment': comment.parent_comment_id,
+        'current_user_vote': current_user_vote,
+    }
+
+
+# Build full collection detail payload by extending summary fields with user-state and child resources.
+def _collection_detail_payload(collection, *, posts_payload, comments_payload, current_user_vote, is_bookmarked):
+    payload = _collection_summary_payload(collection, post_count=len(posts_payload))
+    payload.update(
+        {
+            'vote_count': collection.vote_count,
+            'current_user_vote': current_user_vote,
+            'is_bookmarked': is_bookmarked,
+            'posts': posts_payload,
+            'comments': comments_payload,
+        }
+    )
+    return payload
+
+
+# Build payload for collection post-search results.
+def _collection_search_post_payload(post, *, already_added):
+    return {
+        'id': post.id,
+        'type': post.type,
+        'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
+        'title': post.title,
+        'user_name': post.user.name,
+        'created_at': post.created_at,
+        'already_added': already_added,
+    }
+
+
+# Build vote mutation response payload for collection vote endpoints.
+def _collection_vote_response(*, collection, vote):
+    output = CollectionVoteOutputSerializer(
+        data={
+            'collection_id': collection.id,
+            'vote': vote,
+            'vote_count': collection.vote_count,
+        }
+    )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
+
 # Create a new collection in a team (admin-only) and return summary metadata.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -54,19 +141,7 @@ def create_collection(request):
         user=user,
     )
 
-    payload = {
-        'id': collection.id,
-        'title': collection.title,
-        'description': collection.description,
-        'team': collection.team_id,
-        'user': collection.user_id,
-        'user_name': user.name,
-        'created_at': collection.created_at,
-        'modified_at': collection.modified_at,
-        'views_count': collection.views_count,
-        'post_count': 0,
-        'bookmarks_count': collection.bookmarks_count,
-    }
+    payload = _collection_summary_payload(collection, post_count=0)
     output = CollectionSummaryOutputSerializer(data=payload)
     output.is_valid(raise_exception=True)
     return Response(output.data, status=status.HTTP_201_CREATED)
@@ -96,22 +171,7 @@ def list_collections(request):
     )
     collections, pagination = paginate_queryset(collections, page=page, page_size=page_size)
 
-    data = [
-        {
-            'id': collection.id,
-            'title': collection.title,
-            'description': collection.description,
-            'team': collection.team_id,
-            'user': collection.user_id,
-            'user_name': collection.user.name,
-            'created_at': collection.created_at,
-            'modified_at': collection.modified_at,
-            'views_count': collection.views_count,
-            'post_count': collection.post_count,
-            'bookmarks_count': collection.bookmarks_count,
-        }
-        for collection in collections
-    ]
+    data = [_collection_summary_payload(collection, post_count=collection.post_count) for collection in collections]
 
     output = CollectionListOutputSerializer(data={'items': data, 'pagination': pagination})
     output.is_valid(raise_exception=True)
@@ -165,54 +225,25 @@ def collection_detail(request, collection_id):
     )
     is_bookmarked = Bookmark.objects.filter(user=user, collection=collection, post__isnull=True).exists()
 
-    posts_payload = [
-        {
-            'post_id': item.post_id,
-            'type': item.post.type,
-            'type_label': POST_TYPE_TO_LABEL.get(item.post.type, 'Post'),
-            'title': item.post.title,
-            'sequence_number': item.sequence_number,
-            'user_name': item.post.user.name,
-            'created_at': item.post.created_at,
-        }
-        for item in collection_posts
-    ]
+    posts_payload = [_collection_post_payload(item.post, sequence_number=item.sequence_number) for item in collection_posts]
 
     comments_payload = [
-        {
-            'id': comment.id,
-            'collection_id': comment.collection_id,
-            'body': comment.body,
-            'created_at': comment.created_at,
-            'modified_at': comment.modified_at,
-            'user': comment.user_id,
-            'user_name': comment.user.name,
-            'vote_count': comment.vote_count,
-            'parent_comment': comment.parent_comment_id,
-            'current_user_vote': comment_vote_map.get(comment.id, 0),
-        }
+        _collection_comment_payload(
+            comment,
+            user_name=comment.user.name,
+            current_user_vote=comment_vote_map.get(comment.id, 0),
+        )
         for comment in collection_comments
     ]
 
     output = CollectionDetailOutputSerializer(
-        data={
-            'id': collection.id,
-            'title': collection.title,
-            'description': collection.description,
-            'team': collection.team_id,
-            'user': collection.user_id,
-            'user_name': collection.user.name,
-            'created_at': collection.created_at,
-            'modified_at': collection.modified_at,
-            'views_count': collection.views_count,
-            'post_count': len(posts_payload),
-            'vote_count': collection.vote_count,
-            'bookmarks_count': collection.bookmarks_count,
-            'current_user_vote': current_user_vote,
-            'is_bookmarked': is_bookmarked,
-            'posts': posts_payload,
-            'comments': comments_payload,
-        }
+        data=_collection_detail_payload(
+            collection,
+            posts_payload=posts_payload,
+            comments_payload=comments_payload,
+            current_user_vote=current_user_vote,
+            is_bookmarked=is_bookmarked,
+        )
     )
     output.is_valid(raise_exception=True)
     return Response(output.data, status=status.HTTP_200_OK)
@@ -245,16 +276,7 @@ def upvote_collection(request, collection_id):
             Collection.objects.filter(id=collection.id).update(vote_count=F('vote_count') + 1)
 
     collection.refresh_from_db(fields=['vote_count'])
-
-    output = CollectionVoteOutputSerializer(
-        data={
-            'collection_id': collection.id,
-            'vote': 1,
-            'vote_count': collection.vote_count,
-        }
-    )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
+    return _collection_vote_response(collection=collection, vote=1)
 
 
 # Remove the current user's upvote for a collection and update its aggregate vote total.
@@ -283,16 +305,7 @@ def remove_collection_upvote(request, collection_id):
             Collection.objects.filter(id=collection.id).update(vote_count=F('vote_count') - 1)
 
     collection.refresh_from_db(fields=['vote_count'])
-
-    output = CollectionVoteOutputSerializer(
-        data={
-            'collection_id': collection.id,
-            'vote': 0,
-            'vote_count': collection.vote_count,
-        }
-    )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
+    return _collection_vote_response(collection=collection, vote=0)
 
 
 # Create a comment on a collection and return the new comment payload for immediate display.
@@ -324,18 +337,7 @@ def create_collection_comment(request, collection_id):
     )
 
     output = CollectionCommentOutputSerializer(
-        data={
-            'id': comment.id,
-            'collection_id': comment.collection_id,
-            'body': comment.body,
-            'created_at': comment.created_at,
-            'modified_at': comment.modified_at,
-            'user': comment.user_id,
-            'user_name': user.name,
-            'vote_count': comment.vote_count,
-            'parent_comment': comment.parent_comment_id,
-            'current_user_vote': 0,
-        }
+        data=_collection_comment_payload(comment, user_name=user.name, current_user_vote=0)
     )
     output.is_valid(raise_exception=True)
     return Response(output.data, status=status.HTTP_201_CREATED)
@@ -375,18 +377,7 @@ def search_posts_for_collection(request, collection_id):
         PostCollection.objects.filter(collection=collection, post_id__in=[post.id for post in posts]).values_list('post_id', flat=True)
     )
 
-    data = [
-        {
-            'id': post.id,
-            'type': post.type,
-            'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
-            'title': post.title,
-            'user_name': post.user.name,
-            'created_at': post.created_at,
-            'already_added': post.id in existing_ids,
-        }
-        for post in posts
-    ]
+    data = [_collection_search_post_payload(post, already_added=post.id in existing_ids) for post in posts]
 
     output = CollectionSearchPostOutputSerializer(data=data, many=True)
     output.is_valid(raise_exception=True)
@@ -447,15 +438,7 @@ def add_post_to_collection(request, collection_id):
             return Response({'error': 'Could not add post to collection. Please retry.'}, status=status.HTTP_409_CONFLICT)
 
     output = CollectionPostOutputSerializer(
-        data={
-            'post_id': post_collection.post_id,
-            'type': post.type,
-            'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
-            'title': post.title,
-            'sequence_number': post_collection.sequence_number,
-            'user_name': post.user.name,
-            'created_at': post.created_at,
-        }
+        data=_collection_post_payload(post, sequence_number=post_collection.sequence_number)
     )
     output.is_valid(raise_exception=True)
     return Response(output.data, status=status.HTTP_201_CREATED)
