@@ -18,6 +18,9 @@ class ReputationHistory(models.Model):
     class Meta:
         db_table = 'reputation_history'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['team', 'user', '-created_at'], name='idx_rep_hist_team_user_cr'),
+        ]
 
     def __str__(self):
         return f'ReputationHistory #{self.id}'
