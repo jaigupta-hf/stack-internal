@@ -7,9 +7,15 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.utils import timezone
 from .models import User
-from .serializers import UserSerializer, GoogleAuthSerializer
+from .serializers import (
+    GoogleAuthSerializer,
+    ProfileOutputSerializer,
+    ProfileUpdateOutputSerializer,
+    ProfileUpdateSerializer,
+    UserSerializer,
+)
 from .utils.auth import generate_jwt_token
-from teams.models import TeamUser
+from teams.permissions import ensure_team_membership, get_team_membership
 from posts.models import Post
 
 
@@ -102,24 +108,11 @@ def get_profile(request):
     user = request.user
 
     if request.method == 'PATCH':
-        updates = {}
+        update_serializer = ProfileUpdateSerializer(data=request.data, partial=True)
+        if not update_serializer.is_valid():
+            return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        if 'name' in request.data:
-            clean_name = str(request.data.get('name', '')).strip()
-            if not clean_name:
-                return Response({'error': 'Name cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
-            if len(clean_name) > 255:
-                return Response({'error': 'Name cannot exceed 255 characters'}, status=status.HTTP_400_BAD_REQUEST)
-            updates['name'] = clean_name
-
-        if 'title' in request.data:
-            clean_title = str(request.data.get('title', '')).strip()
-            if len(clean_title) > 255:
-                return Response({'error': 'Title cannot exceed 255 characters'}, status=status.HTTP_400_BAD_REQUEST)
-            updates['title'] = clean_title
-
-        if 'about' in request.data:
-            updates['about'] = str(request.data.get('about', '')).strip()
+        updates = update_serializer.validated_data
 
         for field_name, value in updates.items():
             setattr(user, field_name, value)
@@ -128,25 +121,25 @@ def get_profile(request):
             user.last_seen = timezone.now()
             user.save(update_fields=[*updates.keys(), 'last_seen'])
 
-        return Response(
-            {
+        output_serializer = ProfileUpdateOutputSerializer(
+            data={
                 'id': user.id,
                 'name': user.name,
                 'title': user.title,
                 'about': user.about,
                 'last_seen': user.last_seen,
-            },
-            status=status.HTTP_200_OK,
+            }
         )
+        output_serializer.is_valid(raise_exception=True)
+        return Response(output_serializer.data, status=status.HTTP_200_OK)
 
     team_id = request.query_params.get('team_id')
     if not team_id:
         return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        TeamUser.objects.select_related('team').get(team_id=team_id, user=user)
-    except TeamUser.DoesNotExist:
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team_id=team_id, user=user)
+    if membership_error:
+        return membership_error
 
     target_user = user
     user_id = request.query_params.get('user_id')
@@ -156,10 +149,9 @@ def get_profile(request):
         except User.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if not TeamUser.objects.filter(team_id=team_id, user=target_user).exists():
-            return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership = TeamUser.objects.select_related('team').get(team_id=team_id, user=target_user)
+    membership = get_team_membership(team_id=team_id, user=target_user, select_related_team=True)
+    if membership is None:
+        return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
     user.last_seen = timezone.now()
     user.save(update_fields=['last_seen'])
@@ -228,8 +220,8 @@ def get_profile(request):
             item['is_ignored'] = tag_user.is_ignored
         tag_usages.append(item)
 
-    return Response(
-        {
+    output_serializer = ProfileOutputSerializer(
+        data={
             'id': target_user.id,
             'name': target_user.name,
             'title': target_user.title,
@@ -241,6 +233,7 @@ def get_profile(request):
             'can_edit': can_edit,
             'activities': activities,
             'tag_usages': tag_usages,
-        },
-        status=status.HTTP_200_OK,
+        }
     )
+    output_serializer.is_valid(raise_exception=True)
+    return Response(output_serializer.data, status=status.HTTP_200_OK)
