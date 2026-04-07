@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from teams.permissions import ensure_team_membership
-from teams.utils import get_team_member_name
+from .constants import MAX_NOTIFICATION_LIST_ITEMS
 
 from .models import Notification
 from .serializers import (
@@ -37,7 +37,7 @@ def list_notifications(request):
     notifications = (
         Notification.objects.filter(user=user, post__team_id=team_id)
         .select_related('post', 'triggered_by')
-        .order_by('-created_at')[:100]
+        .order_by('-created_at')[:MAX_NOTIFICATION_LIST_ITEMS]
     )
 
     payload = [
@@ -46,7 +46,7 @@ def list_notifications(request):
             'post_id': item.post_id,
             'user_id': item.user_id,
             'triggered_by_id': item.triggered_by_id,
-            'triggered_by_name': get_team_member_name(item.post.team_id, item.triggered_by_id),
+            'triggered_by_name': item.triggered_by.name,
             'reason': item.reason,
             'created_at': item.created_at,
             'is_read': item.is_read,
@@ -57,10 +57,10 @@ def list_notifications(request):
         }
         for item in notifications
     ]
+    unread_count = sum(1 for item in payload if not item['is_read'])
+
     payload_serializer = NotificationItemOutputSerializer(data=payload, many=True)
     payload_serializer.is_valid(raise_exception=True)
-
-    unread_count = sum(1 for item in payload_serializer.data if not item['is_read'])
 
     output = NotificationListOutputSerializer(
         data={'unread_count': unread_count, 'items': payload_serializer.data}

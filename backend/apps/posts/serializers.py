@@ -1,8 +1,6 @@
 from rest_framework import serializers
 from teams.models import Team
-
-
-ARTICLE_TYPE_VALUES = (20, 21, 22, 23)
+from .constants import ARTICLE_TYPE_VALUES, BOUNTY_REASON_OPTIONS, MAX_TAGS_PER_POST, MIN_TAGS_PER_POST
 
 
 class CreateQuestionSerializer(serializers.Serializer):
@@ -16,10 +14,10 @@ class CreateQuestionSerializer(serializers.Serializer):
     )
 
     def validate_tags(self, value):
-        if len(value) < 1:
-            raise serializers.ValidationError('At least 1 tag is required.')
-        if len(value) > 5:
-            raise serializers.ValidationError('Maximum 5 tags are allowed.')
+        if len(value) < MIN_TAGS_PER_POST:
+            raise serializers.ValidationError(f'At least {MIN_TAGS_PER_POST} tag is required.')
+        if len(value) > MAX_TAGS_PER_POST:
+            raise serializers.ValidationError(f'Maximum {MAX_TAGS_PER_POST} tags are allowed.')
         return value
 
 
@@ -204,8 +202,8 @@ class QuestionUpdateSerializer(serializers.Serializer):
         return cleaned
 
     def validate_tags(self, value):
-        if len(value) > 5:
-            raise serializers.ValidationError('Maximum 5 tags are allowed.')
+        if len(value) > MAX_TAGS_PER_POST:
+            raise serializers.ValidationError(f'Maximum {MAX_TAGS_PER_POST} tags are allowed.')
 
         cleaned_tags = []
         for item in value:
@@ -302,14 +300,7 @@ class QuestionDetailOutputSerializer(serializers.Serializer):
 
 class OfferQuestionBountyInputSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
-        choices=(
-            'Authoritative reference needed',
-            'Canonical answer required',
-            'Current answers are outdated',
-            'Draw attention',
-            'Improve details',
-            'Reward existing answer',
-        )
+        choices=BOUNTY_REASON_OPTIONS
     )
 
 
@@ -374,10 +365,10 @@ class CreateArticleSerializer(serializers.Serializer):
         return value
 
     def validate_tags(self, value):
-        if len(value) < 1:
-            raise serializers.ValidationError('At least 1 tag is required.')
-        if len(value) > 5:
-            raise serializers.ValidationError('Maximum 5 tags are allowed.')
+        if len(value) < MIN_TAGS_PER_POST:
+            raise serializers.ValidationError(f'At least {MIN_TAGS_PER_POST} tag is required.')
+        if len(value) > MAX_TAGS_PER_POST:
+            raise serializers.ValidationError(f'Maximum {MAX_TAGS_PER_POST} tags are allowed.')
         return value
 
 
@@ -442,10 +433,10 @@ class ArticleUpdateSerializer(serializers.Serializer):
         return value
 
     def validate_tags(self, value):
-        if len(value) < 1:
-            raise serializers.ValidationError('At least 1 tag is required.')
-        if len(value) > 5:
-            raise serializers.ValidationError('Maximum 5 tags are allowed.')
+        if len(value) < MIN_TAGS_PER_POST:
+            raise serializers.ValidationError(f'At least {MIN_TAGS_PER_POST} tag is required.')
+        if len(value) > MAX_TAGS_PER_POST:
+            raise serializers.ValidationError(f'Maximum {MAX_TAGS_PER_POST} tags are allowed.')
 
         cleaned_tags = []
         for item in value:

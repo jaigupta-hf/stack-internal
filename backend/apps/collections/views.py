@@ -1,4 +1,4 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -6,8 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.pagination import parse_pagination_params, paginate_queryset
 from teams.permissions import ensure_team_membership, ensure_team_admin, get_team_membership
-from teams.utils import get_team_member_name
 from posts.models import Post
+from posts.constants import COLLECTION_ELIGIBLE_POST_TYPE_VALUES, COLLECTION_POST_SEARCH_LIMIT, POST_TYPE_TO_LABEL
 from comments.models import Comment
 from votes.models import Vote
 from posts.models import Bookmark
@@ -24,20 +24,6 @@ from .serializers import (
     CollectionVoteOutputSerializer,
     CreateCollectionSerializer,
 )
-
-
-POST_TYPE_TO_LABEL = {
-    0: 'Question',
-    20: 'Announcement',
-    21: 'How-to Guide',
-    22: 'Knowledge Article',
-    23: 'Policy',
-}
-
-
-def _display_name(team_id, user_id):
-    return get_team_member_name(team_id, user_id)
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -73,7 +59,7 @@ def create_collection(request):
         'description': collection.description,
         'team': collection.team_id,
         'user': collection.user_id,
-        'user_name': _display_name(collection.team_id, user.id),
+        'user_name': user.name,
         'created_at': collection.created_at,
         'modified_at': collection.modified_at,
         'views_count': collection.views_count,
@@ -115,7 +101,7 @@ def list_collections(request):
             'description': collection.description,
             'team': collection.team_id,
             'user': collection.user_id,
-            'user_name': _display_name(collection.team_id, collection.user_id),
+            'user_name': collection.user.name,
             'created_at': collection.created_at,
             'modified_at': collection.modified_at,
             'views_count': collection.views_count,
@@ -183,7 +169,7 @@ def collection_detail(request, collection_id):
             'type_label': POST_TYPE_TO_LABEL.get(item.post.type, 'Post'),
             'title': item.post.title,
             'sequence_number': item.sequence_number,
-            'user_name': _display_name(collection.team_id, item.post.user_id),
+            'user_name': item.post.user.name,
             'created_at': item.post.created_at,
         }
         for item in collection_posts
@@ -197,7 +183,7 @@ def collection_detail(request, collection_id):
             'created_at': comment.created_at,
             'modified_at': comment.modified_at,
             'user': comment.user_id,
-            'user_name': _display_name(collection.team_id, comment.user_id),
+            'user_name': comment.user.name,
             'vote_count': comment.vote_count,
             'parent_comment': comment.parent_comment_id,
             'current_user_vote': comment_vote_map.get(comment.id, 0),
@@ -212,7 +198,7 @@ def collection_detail(request, collection_id):
             'description': collection.description,
             'team': collection.team_id,
             'user': collection.user_id,
-            'user_name': _display_name(collection.team_id, collection.user_id),
+            'user_name': collection.user.name,
             'created_at': collection.created_at,
             'modified_at': collection.modified_at,
             'views_count': collection.views_count,
@@ -339,7 +325,7 @@ def create_collection_comment(request, collection_id):
             'created_at': comment.created_at,
             'modified_at': comment.modified_at,
             'user': comment.user_id,
-            'user_name': _display_name(collection.team_id, comment.user_id),
+            'user_name': user.name,
             'vote_count': comment.vote_count,
             'parent_comment': comment.parent_comment_id,
             'current_user_vote': 0,
@@ -370,12 +356,12 @@ def search_posts_for_collection(request, collection_id):
     posts = (
         Post.objects.filter(
             team=collection.team,
-            type__in=(0, 20, 21, 22, 23),
+            type__in=COLLECTION_ELIGIBLE_POST_TYPE_VALUES,
             delete_flag=False,
             title__icontains=query,
         )
         .select_related('user')
-        .order_by('-created_at')[:20]
+        .order_by('-created_at')[:COLLECTION_POST_SEARCH_LIMIT]
     )
 
     existing_ids = set(
@@ -388,7 +374,7 @@ def search_posts_for_collection(request, collection_id):
             'type': post.type,
             'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
             'title': post.title,
-            'user_name': _display_name(collection.team_id, post.user_id),
+            'user_name': post.user.name,
             'created_at': post.created_at,
             'already_added': post.id in existing_ids,
         }
@@ -428,23 +414,29 @@ def add_post_to_collection(request, collection_id):
         post = Post.objects.select_related('user').get(
             id=post_id,
             team=collection.team,
-            type__in=(0, 20, 21, 22, 23),
+            type__in=COLLECTION_ELIGIBLE_POST_TYPE_VALUES,
             delete_flag=False,
         )
     except Post.DoesNotExist:
         return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if PostCollection.objects.filter(collection=collection, post=post).exists():
-        return Response({'error': 'Post already added to this collection'}, status=status.HTTP_400_BAD_REQUEST)
+    with transaction.atomic():
+        Collection.objects.select_for_update().filter(id=collection.id).first()
 
-    max_sequence = PostCollection.objects.filter(collection=collection).aggregate(max_value=Max('sequence_number'))
-    next_sequence = (max_sequence.get('max_value') or 0) + 1
+        if PostCollection.objects.filter(collection=collection, post=post).exists():
+            return Response({'error': 'Post already added to this collection'}, status=status.HTTP_400_BAD_REQUEST)
 
-    post_collection = PostCollection.objects.create(
-        collection=collection,
-        post=post,
-        sequence_number=next_sequence,
-    )
+        max_sequence = PostCollection.objects.filter(collection=collection).aggregate(max_value=Max('sequence_number'))
+        next_sequence = (max_sequence.get('max_value') or 0) + 1
+
+        try:
+            post_collection = PostCollection.objects.create(
+                collection=collection,
+                post=post,
+                sequence_number=next_sequence,
+            )
+        except IntegrityError:
+            return Response({'error': 'Could not add post to collection. Please retry.'}, status=status.HTTP_409_CONFLICT)
 
     output = CollectionPostOutputSerializer(
         data={
@@ -453,7 +445,7 @@ def add_post_to_collection(request, collection_id):
             'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
             'title': post.title,
             'sequence_number': post_collection.sequence_number,
-            'user_name': _display_name(collection.team_id, post.user_id),
+            'user_name': post.user.name,
             'created_at': post.created_at,
         }
     )

@@ -2,26 +2,11 @@ from teams.utils import get_team_member_name
 from users.models import User
 from notifications.api import create_notification
 from notifications.models import Notification
+from notifications.constants import NOTIFICATION_REASON_MENTIONED_IN_QUESTION
 from reputation.constants import BOUNTY_AMOUNT
+from .constants import ARTICLE_TYPE_TO_LABEL, BOUNTY_REASON_OPTIONS
 
 from .models import PostFollow
-
-
-BOUNTY_REASON_OPTIONS = {
-    'Authoritative reference needed',
-    'Canonical answer required',
-    'Current answers are outdated',
-    'Draw attention',
-    'Improve details',
-    'Reward existing answer',
-}
-
-ARTICLE_TYPE_TO_LABEL = {
-    20: 'Announcement',
-    21: 'How-to Guide',
-    22: 'Knowledge Article',
-    23: 'Policy',
-}
 
 
 def _display_name(team_id, user_id):
@@ -32,7 +17,7 @@ def _serialize_post_mentions(question):
     mentions = getattr(question, 'mention_notifications', None)
     if mentions is None:
         mentions = (
-            Notification.objects.filter(post=question, reason='mentioned_in_question')
+            Notification.objects.filter(post=question, reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
             .select_related('user', 'triggered_by')
             .order_by('created_at')
         )
@@ -41,9 +26,9 @@ def _serialize_post_mentions(question):
         {
             'id': mention.id,
             'user_id': mention.user_id,
-            'user_name': _display_name(question.team_id, mention.user_id),
+            'user_name': mention.user.name,
             'mentioned_by': mention.triggered_by_id,
-            'mentioned_by_name': _display_name(question.team_id, mention.triggered_by_id),
+            'mentioned_by_name': mention.triggered_by.name,
             'created_at': mention.created_at,
         }
         for mention in mentions

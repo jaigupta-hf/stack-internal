@@ -5,12 +5,19 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from apps.pagination import parse_pagination_params, paginate_queryset
 
 from teams.models import TeamUser
 from teams.permissions import ensure_team_membership
 
 from notifications.api import create_notification
 from notifications.models import Notification
+from notifications.constants import (
+    NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
+    NOTIFICATION_REASON_QUESTION_CLOSED,
+    NOTIFICATION_REASON_QUESTION_DELETED,
+    NOTIFICATION_REASON_QUESTION_EDITED,
+)
 from comments.models import Comment
 from votes.models import Vote
 from reputation.models import Bounty
@@ -27,6 +34,12 @@ from .serializers import (
     QuestionListOutputSerializer,
     QuestionSearchItemOutputSerializer,
     QuestionUpdateSerializer,
+)
+from .constants import (
+    ARTICLE_TYPE_VALUES,
+    GLOBAL_SEARCH_PER_TYPE_LIMIT,
+    GLOBAL_SEARCH_TOTAL_LIMIT,
+    SEARCH_QUESTION_LIMIT,
 )
 from .views_common import (
     _display_name,
@@ -48,8 +61,6 @@ def list_questions(request):
     membership_error = ensure_team_membership(team_id=team_id, user=user)
     if membership_error:
         return membership_error
-
-    from apps.pagination import parse_pagination_params, paginate_queryset
 
     page, page_size = parse_pagination_params(request)
 
@@ -105,10 +116,10 @@ def list_questions(request):
             'closed_reason': question.closed_reason,
             'closed_at': question.closed_at,
             'closed_by': question.closed_by_id,
-            'closed_by_username': _display_name(question.team_id, question.closed_by_id) if question.closed_by else None,
+            'closed_by_username': question.closed_by.name if question.closed_by else None,
             'duplicate_post_id': question.parent_id if question.closed_reason == 'duplicate' else None,
             'duplicate_post_title': question.parent.title if question.closed_reason == 'duplicate' and question.parent else None,
-            'user_name': _display_name(question.team_id, question.user_id),
+            'user_name': question.user.name,
             'created_at': question.created_at,
             'latest_activity_at': question.latest_answer_activity_at or question.created_at,
         }
@@ -142,13 +153,13 @@ def search_questions(request):
         {
             'id': item.id,
             'title': item.title,
-            'user_name': _display_name(team_id, item.user_id),
+            'user_name': item.user.name,
             'created_at': item.created_at,
             'delete_flag': item.delete_flag,
             'is_closed': bool(item.closed_reason),
             'closed_reason': item.closed_reason,
         }
-        for item in questions[:12]
+        for item in questions[:SEARCH_QUESTION_LIMIT]
     ]
 
     output = QuestionSearchItemOutputSerializer(data=payload, many=True)
@@ -177,17 +188,17 @@ def search_global_titles(request):
     question_posts = (
         Post.objects.filter(team_id=team_id, type=0, delete_flag=False, title__icontains=query)
         .select_related('user')
-        .order_by('-created_at')[:10]
+        .order_by('-created_at')[:GLOBAL_SEARCH_PER_TYPE_LIMIT]
     )
     article_posts = (
-        Post.objects.filter(team_id=team_id, type__in=(20, 21, 22, 23), delete_flag=False, title__icontains=query)
+        Post.objects.filter(team_id=team_id, type__in=ARTICLE_TYPE_VALUES, delete_flag=False, title__icontains=query)
         .select_related('user')
-        .order_by('-created_at')[:10]
+        .order_by('-created_at')[:GLOBAL_SEARCH_PER_TYPE_LIMIT]
     )
     collections = (
         Collection.objects.filter(team_id=team_id, title__icontains=query)
         .select_related('user')
-        .order_by('-created_at')[:10]
+        .order_by('-created_at')[:GLOBAL_SEARCH_PER_TYPE_LIMIT]
     )
 
     results = [
@@ -195,7 +206,7 @@ def search_global_titles(request):
             'id': item.id,
             'type': 'question',
             'title': item.title,
-            'user_name': _display_name(team_id, item.user_id),
+            'user_name': item.user.name,
             'created_at': item.created_at,
             'delete_flag': item.delete_flag,
         }
@@ -207,7 +218,7 @@ def search_global_titles(request):
                 'id': item.id,
                 'type': 'article',
                 'title': item.title,
-                'user_name': _display_name(team_id, item.user_id),
+                'user_name': item.user.name,
                 'created_at': item.created_at,
             }
             for item in article_posts
@@ -219,7 +230,7 @@ def search_global_titles(request):
                 'id': item.id,
                 'type': 'collection',
                 'title': item.title,
-                'user_name': _display_name(team_id, item.user_id),
+                'user_name': item.user.name,
                 'created_at': item.created_at,
             }
             for item in collections
@@ -228,7 +239,7 @@ def search_global_titles(request):
 
     results.sort(key=lambda item: item.get('created_at') or timezone.now(), reverse=True)
 
-    output = GlobalTitleSearchItemOutputSerializer(data=results[:20], many=True)
+    output = GlobalTitleSearchItemOutputSerializer(data=results[:GLOBAL_SEARCH_TOTAL_LIMIT], many=True)
     output.is_valid(raise_exception=True)
 
     return Response(output.data, status=status.HTTP_200_OK)
@@ -293,7 +304,7 @@ def close_question(request, question_id):
         post=question,
         user=question.user,
         triggered_by=user,
-        reason='question_closed',
+        reason=NOTIFICATION_REASON_QUESTION_CLOSED,
     )
 
     output = QuestionCloseOutputSerializer(
@@ -372,7 +383,7 @@ def delete_question(request, question_id):
             post=question,
             user=question.user,
             triggered_by=user,
-            reason='question_deleted',
+            reason=NOTIFICATION_REASON_QUESTION_DELETED,
         )
 
     output = PostDeleteStateOutputSerializer(
@@ -437,7 +448,7 @@ def question_detail(request, question_id):
                 ),
                 Prefetch(
                     'notifications',
-                    queryset=Notification.objects.filter(reason='mentioned_in_question')
+                    queryset=Notification.objects.filter(reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
                     .select_related('user', 'triggered_by')
                     .order_by('created_at'),
                     to_attr='mention_notifications',
@@ -477,7 +488,7 @@ def question_detail(request, question_id):
             post=question,
             user=question.user,
             triggered_by=user,
-            reason='question_edited',
+            reason=NOTIFICATION_REASON_QUESTION_EDITED,
         )
 
         question = (
@@ -490,7 +501,7 @@ def question_detail(request, question_id):
                 ),
                 Prefetch(
                     'notifications',
-                    queryset=Notification.objects.filter(reason='mentioned_in_question')
+                    queryset=Notification.objects.filter(reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
                     .select_related('user', 'triggered_by')
                     .order_by('created_at'),
                     to_attr='mention_notifications',

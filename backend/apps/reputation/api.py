@@ -1,28 +1,13 @@
 from teams.permissions import get_team_membership
-from .constants import MIN_REPUTATION
+from .constants import MIN_REPUTATION, REPUTATION_REASON_VALUES
 
 from .models import ReputationHistory
-
-
-ALLOWED_REASONS = {
-    'upvote',
-    'unupvote',
-    'downvote',
-    'undownvote',
-    'accept',
-    'unaccept',
-    'downvoted',
-    'undownvoted',
-    'bounty offered',
-    'bounty earned',
-}
-
 
 def apply_reputation_change(*, user, team, triggered_by, post, points, reason):
     if points == 0:
         return None
 
-    if reason not in ALLOWED_REASONS:
+    if reason not in REPUTATION_REASON_VALUES:
         return None
 
     membership = get_team_membership(team=team, user=user)
