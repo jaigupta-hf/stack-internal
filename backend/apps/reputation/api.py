@@ -1,4 +1,5 @@
 from teams.permissions import get_team_membership
+from .constants import MIN_REPUTATION
 
 from .models import ReputationHistory
 
@@ -28,11 +29,15 @@ def apply_reputation_change(*, user, team, triggered_by, post, points, reason):
     if not membership:
         return None
 
-    # Normalize legacy/stale values so all calculations use the minimum baseline of 1.
-    current_reputation = membership.reputation if membership.reputation and membership.reputation > 0 else 1
+    # Normalize legacy/stale values so all calculations use the minimum baseline.
+    current_reputation = (
+        membership.reputation
+        if membership.reputation and membership.reputation > 0
+        else MIN_REPUTATION
+    )
     next_reputation = current_reputation + points
-    if next_reputation < 1:
-        next_reputation = 1
+    if next_reputation < MIN_REPUTATION:
+        next_reputation = MIN_REPUTATION
 
     actual_points = next_reputation - current_reputation
 

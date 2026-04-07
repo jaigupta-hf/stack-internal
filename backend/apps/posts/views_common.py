@@ -2,11 +2,11 @@ from teams.utils import get_team_member_name
 from users.models import User
 from notifications.api import create_notification
 from notifications.models import Notification
+from reputation.constants import BOUNTY_AMOUNT
 
 from .models import PostFollow
 
 
-BOUNTY_AMOUNT = 50
 BOUNTY_REASON_OPTIONS = {
     'Authoritative reference needed',
     'Canonical answer required',
