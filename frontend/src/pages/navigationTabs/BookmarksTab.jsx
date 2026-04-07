@@ -1,52 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { postService } from '../../services/api';
-
-const formatBookmarkTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffHours < 24) {
-    const hours = Math.max(diffHours, 1);
-    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-};
+import AsyncStateView from '../../components/AsyncStateView';
+import { formatBookmarkTime } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
-  const [bookmarks, setBookmarks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadBookmarks = async () => {
-      if (!team?.id) {
-        setBookmarks([]);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const data = await postService.listBookmarks(team.id);
-        setBookmarks(data);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load bookmarks.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBookmarks();
+  const loadBookmarks = useCallback(async () => {
+    const data = await postService.listBookmarks(team?.id);
+    return Array.isArray(data) ? data : [];
   }, [team?.id]);
+
+  const {
+    data: bookmarks,
+    setData: setBookmarks,
+    loading,
+    error,
+    setError,
+  } = useTeamResource({
+    enabled: Boolean(team?.id),
+    initialData: [],
+    loadResource: loadBookmarks,
+    fallbackErrorMessage: 'Failed to load bookmarks.',
+    dependencies: [team?.id],
+  });
 
   const handleRemoveBookmark = async (item) => {
     try {
@@ -66,21 +42,16 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
       <h2 className="text-2xl font-semibold text-white">Bookmarks</h2>
       <p className="mt-2 text-slate-300">Your saved posts for this team.</p>
 
-      {error ? (
-        <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-          {error}
-        </p>
-      ) : null}
-
-      {loading ? <p className="mt-6 text-slate-300">Loading bookmarks...</p> : null}
-
-      {!loading && bookmarks.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-          No bookmarked posts yet.
-        </div>
-      ) : null}
-
-      {!loading && bookmarks.length > 0 ? (
+      <AsyncStateView
+        loading={loading}
+        error={error}
+        isEmpty={bookmarks.length === 0}
+        loadingMessage="Loading bookmarks..."
+        emptyMessage="No bookmarked posts yet."
+        loadingClassName="mt-6 text-slate-300"
+        errorClassName="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200"
+        emptyClassName="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400"
+      >
         <ul className="mt-4 space-y-3">
           {bookmarks.map((item) => (
             <li key={item.bookmark_id} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-slate-100">
@@ -160,7 +131,7 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
             </li>
           ))}
         </ul>
-      ) : null}
+      </AsyncStateView>
     </div>
   );
 }

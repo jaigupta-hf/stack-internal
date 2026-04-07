@@ -6,8 +6,15 @@ from django.db import transaction
 from django.db.models import F
 from django.db.models import IntegerField, Value
 from django.db.models.functions import Coalesce, Greatest
-from teams.models import TeamUser
+from teams.permissions import ensure_team_membership
 from .models import Tag, TagUser
+from .serializers import (
+	TagPreferenceOutputSerializer,
+	TagSearchItemOutputSerializer,
+	TeamIdQuerySerializer,
+	TeamTagOutputSerializer,
+	UpdateTagPreferenceInputSerializer,
+)
 
 
 @api_view(['GET'])
@@ -38,7 +45,9 @@ def search_tags(request):
 		}
 		for tag in tags
 	]
-	return Response(data, status=status.HTTP_200_OK)
+	output = TagSearchItemOutputSerializer(data=data, many=True)
+	output.is_valid(raise_exception=True)
+	return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -46,12 +55,18 @@ def search_tags(request):
 def list_team_tags(request):
 	user = request.user
 
-	team_id = request.query_params.get('team_id')
-	if not team_id:
+	raw_team_id = request.query_params.get('team_id')
+	if not raw_team_id:
 		return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-	if not TeamUser.objects.filter(team_id=team_id, user=user).exists():
-		return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+	team_id_serializer = TeamIdQuerySerializer(data={'team_id': raw_team_id})
+	if not team_id_serializer.is_valid():
+		return Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+	team_id = team_id_serializer.validated_data['team_id']
+
+	membership_error = ensure_team_membership(team_id=team_id, user=user)
+	if membership_error:
+		return membership_error
 
 	tags = (
 		Tag.objects.filter(
@@ -82,7 +97,9 @@ def list_team_tags(request):
 		for tag in tags
 	]
 
-	return Response(data, status=status.HTTP_200_OK)
+	output = TeamTagOutputSerializer(data=data, many=True)
+	output.is_valid(raise_exception=True)
+	return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -90,12 +107,18 @@ def list_team_tags(request):
 def list_tag_preferences(request):
 	user = request.user
 
-	team_id = request.query_params.get('team_id')
-	if not team_id:
+	raw_team_id = request.query_params.get('team_id')
+	if not raw_team_id:
 		return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-	if not TeamUser.objects.filter(team_id=team_id, user=user).exists():
-		return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+	team_id_serializer = TeamIdQuerySerializer(data={'team_id': raw_team_id})
+	if not team_id_serializer.is_valid():
+		return Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+	team_id = team_id_serializer.validated_data['team_id']
+
+	membership_error = ensure_team_membership(team_id=team_id, user=user)
+	if membership_error:
+		return membership_error
 
 	tag_users = (
 		TagUser.objects.filter(
@@ -120,7 +143,9 @@ def list_tag_preferences(request):
 		for item in tag_users
 	]
 
-	return Response(data, status=status.HTTP_200_OK)
+	output = TagPreferenceOutputSerializer(data=data, many=True)
+	output.is_valid(raise_exception=True)
+	return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -130,20 +155,23 @@ def update_tag_preference(request):
 
 	team_id = request.data.get('team_id')
 	tag_id = request.data.get('tag_id')
-	field = str(request.data.get('field', '')).strip()
-	value = request.data.get('value')
 
 	if not team_id or not tag_id:
 		return Response({'error': 'team_id and tag_id are required'}, status=status.HTTP_400_BAD_REQUEST)
 
-	if field not in ('is_watching', 'is_ignored'):
-		return Response({'error': 'field must be is_watching or is_ignored'}, status=status.HTTP_400_BAD_REQUEST)
+	input_serializer = UpdateTagPreferenceInputSerializer(data=request.data)
+	if not input_serializer.is_valid():
+		return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-	if value not in (True, False):
-		return Response({'error': 'value must be true or false'}, status=status.HTTP_400_BAD_REQUEST)
+	validated = input_serializer.validated_data
+	team_id = validated['team_id']
+	tag_id = validated['tag_id']
+	field = validated['field']
+	value = validated['value']
 
-	if not TeamUser.objects.filter(team_id=team_id, user=user).exists():
-		return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+	membership_error = ensure_team_membership(team_id=team_id, user=user)
+	if membership_error:
+		return membership_error
 
 	tag = Tag.objects.filter(
 		id=tag_id,
@@ -182,13 +210,15 @@ def update_tag_preference(request):
 				watch_count=Greatest(Coalesce(F('watch_count'), 0) - 1, 0)
 			)
 
-	return Response(
-		{
+	output = TagPreferenceOutputSerializer(
+		data={
 			'tag_id': tag.id,
 			'tag_name': tag.name,
 			'count': tag_user.count,
 			'is_watching': tag_user.is_watching,
 			'is_ignored': tag_user.is_ignored,
-		},
-		status=status.HTTP_200_OK,
+		}
 	)
+	output.is_valid(raise_exception=True)
+
+	return Response(output.data, status=status.HTTP_200_OK)

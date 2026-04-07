@@ -16,6 +16,12 @@ class Notification(models.Model):
     class Meta:
         db_table = 'notifications'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at'], name='ntf_user_created_idx'),
+            models.Index(fields=['user', 'is_read'], name='ntf_user_is_read_idx'),
+            models.Index(fields=['post', 'reason', 'created_at'], name='ntf_post_reason_created_idx'),
+            models.Index(fields=['post', 'user', 'reason'], name='ntf_post_user_reason_idx'),
+        ]
 
     def __str__(self):
         return f'Notification #{self.id} for user {self.user_id}'

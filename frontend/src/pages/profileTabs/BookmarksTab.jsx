@@ -1,41 +1,28 @@
-import { useEffect, useState } from 'react';
-import { postService } from '../../../services/api';
-
-const formatBookmarkTime = (timestamp, formatProfileTime) => {
-  if (typeof formatProfileTime === 'function') {
-    return formatProfileTime(timestamp);
-  }
-
-  return '';
-};
+import { useCallback } from 'react';
+import { postService } from '../../services/api';
+import AsyncStateView from '../../components/AsyncStateView';
+import { formatProfileTimeWithFallback } from '../../utils/dateTime';
+import useTeamResource from '../../hooks/useTeamResource';
 
 function BookmarksTab({ team, profileUserId, canEdit, formatProfileTime, onOpenReference, onOpenUserProfile }) {
-  const [bookmarks, setBookmarks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const loadBookmarks = async () => {
-      if (!team?.id || !profileUserId) {
-        setBookmarks([]);
-        return;
-      }
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const data = await postService.listBookmarks(team.id, profileUserId);
-        setBookmarks(data || []);
-      } catch (err) {
-        setError(err.response?.data?.error || 'Failed to load bookmarks.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBookmarks();
+  const loadBookmarks = useCallback(async () => {
+    const data = await postService.listBookmarks(team?.id, profileUserId);
+    return Array.isArray(data) ? data : [];
   }, [team?.id, profileUserId]);
+
+  const {
+    data: bookmarks,
+    setData: setBookmarks,
+    loading,
+    error,
+    setError,
+  } = useTeamResource({
+    enabled: Boolean(team?.id && profileUserId),
+    initialData: [],
+    loadResource: loadBookmarks,
+    fallbackErrorMessage: 'Failed to load bookmarks.',
+    dependencies: [team?.id, profileUserId],
+  });
 
   const handleRemoveBookmark = async (item) => {
     if (!canEdit) {
@@ -77,21 +64,16 @@ function BookmarksTab({ team, profileUserId, canEdit, formatProfileTime, onOpenR
         <p className="text-xs text-slate-400">Saved posts and collections</p>
       </div>
 
-      {error ? (
-        <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-          {error}
-        </p>
-      ) : null}
-
-      {loading ? <p className="mt-6 text-slate-300">Loading bookmarks...</p> : null}
-
-      {!loading && bookmarks.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-          No bookmarked posts yet.
-        </div>
-      ) : null}
-
-      {!loading && bookmarks.length > 0 ? (
+      <AsyncStateView
+        loading={loading}
+        error={error}
+        isEmpty={bookmarks.length === 0}
+        loadingMessage="Loading bookmarks..."
+        emptyMessage="No bookmarked posts yet."
+        loadingClassName="mt-6 text-slate-300"
+        errorClassName="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200"
+        emptyClassName="mt-6 rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400"
+      >
         <ul className="mt-4 space-y-3">
           {bookmarks.map((item) => (
             <li key={item.bookmark_id} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-slate-100">
@@ -172,14 +154,14 @@ function BookmarksTab({ team, profileUserId, canEdit, formatProfileTime, onOpenR
                     >
                       {item.user_name}
                     </button>{' '}
-                    posted {formatBookmarkTime(item.created_at, formatProfileTime)}
+                    posted {formatProfileTimeWithFallback(item.created_at, formatProfileTime)}
                   </span>
                 </p>
               </div>
             </li>
           ))}
         </ul>
-      ) : null}
+      </AsyncStateView>
     </section>
   );
 }

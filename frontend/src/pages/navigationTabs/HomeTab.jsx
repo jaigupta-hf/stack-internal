@@ -1,59 +1,7 @@
 import { useEffect, useState } from 'react';
 import { postService } from '../../services/api';
-
-const istDayFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  day: 'numeric',
-});
-
-const istMonthFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  month: 'short',
-});
-
-const istTimeFormatter = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata',
-  hour: 'numeric',
-  minute: '2-digit',
-  hour12: true,
-});
-
-const getOrdinal = (day) => {
-  if (day >= 11 && day <= 13) {
-    return `${day}th`;
-  }
-  const lastDigit = day % 10;
-  if (lastDigit === 1) return `${day}st`;
-  if (lastDigit === 2) return `${day}nd`;
-  if (lastDigit === 3) return `${day}rd`;
-  return `${day}th`;
-};
-
-const formatQuestionTime = (timestamp) => {
-  const created = new Date(timestamp);
-  if (Number.isNaN(created.getTime())) {
-    return '';
-  }
-
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMinutes < 60) {
-    const minutes = Math.max(diffMinutes, 1);
-    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  }
-
-  if (diffHours < 24) {
-    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-  }
-
-  const day = Number(istDayFormatter.format(created));
-  const month = istMonthFormatter.format(created).toLowerCase();
-  const time = istTimeFormatter.format(created);
-  return `${getOrdinal(day)} ${month} at ${time}`;
-};
+import AsyncStateView from '../../components/AsyncStateView';
+import { formatHomeQuestionTime } from '../../utils/dateTime';
 
 function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
   const [trendingQuestions, setTrendingQuestions] = useState([]);
@@ -100,17 +48,13 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
             Trending Questions
           </h3>
 
-          {loading ? (
-            <p className="text-sm text-slate-300">Loading trending questions...</p>
-          ) : error ? (
-            <p className="rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-              {error}
-            </p>
-          ) : trendingQuestions.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/20 bg-black/20 px-5 py-10 text-center text-slate-400">
-              No trending questions yet.
-            </div>
-          ) : (
+          <AsyncStateView
+            loading={loading}
+            error={error}
+            isEmpty={trendingQuestions.length === 0}
+            loadingMessage="Loading trending questions..."
+            emptyMessage="No trending questions yet."
+          >
             <ul className="space-y-3">
               {trendingQuestions.map((question) => (
                 <li key={question.id}>
@@ -173,7 +117,7 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
                           >
                             {question.user_name || 'User'}
                           </button>{' '}
-                          asked {formatQuestionTime(question.created_at)}
+                          asked {formatHomeQuestionTime(question.created_at)}
                         </div>
                       </div>
                     </div>
@@ -181,7 +125,7 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
                 </li>
               ))}
             </ul>
-          )}
+          </AsyncStateView>
         </div>
 
         <aside className="space-y-4">

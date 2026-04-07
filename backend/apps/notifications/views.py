@@ -3,10 +3,17 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from teams.models import TeamUser
-from teams.utils import get_team_member_name
+from teams.permissions import ensure_team_membership
+from .constants import MAX_NOTIFICATION_LIST_ITEMS
 
 from .models import Notification
+from .serializers import (
+    NotificationItemOutputSerializer,
+    NotificationListOutputSerializer,
+    NotificationMarkAllReadOutputSerializer,
+    NotificationReadStateOutputSerializer,
+    TeamIdInputSerializer,
+)
 
 
 @api_view(['GET'])
@@ -14,17 +21,23 @@ from .models import Notification
 def list_notifications(request):
     user = request.user
 
-    team_id = request.query_params.get('team_id')
-    if not team_id:
+    raw_team_id = request.query_params.get('team_id')
+    if not raw_team_id:
         return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not TeamUser.objects.filter(team_id=team_id, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    team_id_serializer = TeamIdInputSerializer(data={'team_id': raw_team_id})
+    if not team_id_serializer.is_valid():
+        return Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    team_id = team_id_serializer.validated_data['team_id']
+
+    membership_error = ensure_team_membership(team_id=team_id, user=user)
+    if membership_error:
+        return membership_error
 
     notifications = (
         Notification.objects.filter(user=user, post__team_id=team_id)
         .select_related('post', 'triggered_by')
-        .order_by('-created_at')[:100]
+        .order_by('-created_at')[:MAX_NOTIFICATION_LIST_ITEMS]
     )
 
     payload = [
@@ -33,7 +46,7 @@ def list_notifications(request):
             'post_id': item.post_id,
             'user_id': item.user_id,
             'triggered_by_id': item.triggered_by_id,
-            'triggered_by_name': get_team_member_name(item.post.team_id, item.triggered_by_id),
+            'triggered_by_name': item.triggered_by.name,
             'reason': item.reason,
             'created_at': item.created_at,
             'is_read': item.is_read,
@@ -44,10 +57,16 @@ def list_notifications(request):
         }
         for item in notifications
     ]
-
     unread_count = sum(1 for item in payload if not item['is_read'])
 
-    return Response({'unread_count': unread_count, 'items': payload}, status=status.HTTP_200_OK)
+    payload_serializer = NotificationItemOutputSerializer(data=payload, many=True)
+    payload_serializer.is_valid(raise_exception=True)
+
+    output = NotificationListOutputSerializer(
+        data={'unread_count': unread_count, 'items': payload_serializer.data}
+    )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -60,14 +79,17 @@ def mark_notification_read(request, notification_id):
     except Notification.DoesNotExist:
         return Response({'error': 'Notification not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=notification.post.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=notification.post.team, user=user)
+    if membership_error:
+        return membership_error
 
     if not notification.is_read:
         notification.is_read = True
         notification.save(update_fields=['is_read'])
 
-    return Response({'id': notification.id, 'is_read': True}, status=status.HTTP_200_OK)
+    output = NotificationReadStateOutputSerializer(data={'id': notification.id, 'is_read': True})
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -80,14 +102,17 @@ def mark_notification_unread(request, notification_id):
     except Notification.DoesNotExist:
         return Response({'error': 'Notification not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=notification.post.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=notification.post.team, user=user)
+    if membership_error:
+        return membership_error
 
     if notification.is_read:
         notification.is_read = False
         notification.save(update_fields=['is_read'])
 
-    return Response({'id': notification.id, 'is_read': False}, status=status.HTTP_200_OK)
+    output = NotificationReadStateOutputSerializer(data={'id': notification.id, 'is_read': False})
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -95,13 +120,21 @@ def mark_notification_unread(request, notification_id):
 def mark_all_notifications_read(request):
     user = request.user
 
-    team_id = request.data.get('team_id')
-    if not team_id:
+    raw_team_id = request.data.get('team_id')
+    if not raw_team_id:
         return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not TeamUser.objects.filter(team_id=team_id, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    team_id_serializer = TeamIdInputSerializer(data={'team_id': raw_team_id})
+    if not team_id_serializer.is_valid():
+        return Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    team_id = team_id_serializer.validated_data['team_id']
+
+    membership_error = ensure_team_membership(team_id=team_id, user=user)
+    if membership_error:
+        return membership_error
 
     updated = Notification.objects.filter(user=user, post__team_id=team_id, is_read=False).update(is_read=True)
 
-    return Response({'updated_count': updated}, status=status.HTTP_200_OK)
+    output = NotificationMarkAllReadOutputSerializer(data={'updated_count': updated})
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)

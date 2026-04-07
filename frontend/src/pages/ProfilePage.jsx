@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { authService } from '../services/api';
-import { formatProfileTime } from './profileTabs/utils';
-import PostsTab from './profileTabs/tabs/PostsTab';
-import TagsTab from './profileTabs/tabs/TagsTab';
-import FollowingTab from './profileTabs/tabs/FollowingTab';
-import ReputationTab from './profileTabs/tabs/ReputationTab';
-import BountiesTab from './profileTabs/tabs/BountiesTab';
-import BadgesTab from './profileTabs/tabs/BadgesTab';
-import BookmarksTab from './profileTabs/tabs/BookmarksTab';
+import { formatProfileTime } from '../utils/dateTime';
+import PostsTab from './profileTabs/PostsTab';
+import TagsTab from './profileTabs/TagsTab';
+import FollowingTab from './profileTabs/FollowingTab';
+import ReputationTab from './profileTabs/ReputationTab';
+import BountiesTab from './profileTabs/BountiesTab';
+import BadgesTab from './profileTabs/BadgesTab';
+import BookmarksTab from './profileTabs/BookmarksTab';
 
 const PROFILE_NAV_TABS = [
   { key: 'posts', label: 'Posts' },

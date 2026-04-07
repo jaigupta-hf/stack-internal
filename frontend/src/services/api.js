@@ -7,4 +7,4 @@ export { tagService } from './tags-api';
 export { collectionService } from './collection-api';
 export { notificationService } from './notification-api';
 export { reputationService } from './reputation-api';
-export { api, asList, tokenService } from './config';
+export { api, asList, asPaginated, tokenService, withPaginationParams } from './config';

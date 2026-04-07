@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { tagService } from '../../../services/api';
+import { useEffect, useState } from 'react';
+import { tagService } from '../../services/api';
+import useFilteredList from '../../hooks/useFilteredList';
 
 function TagsTab({ tagUsages, canEdit, team }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -12,18 +13,18 @@ function TagsTab({ tagUsages, canEdit, team }) {
     setTags(tagUsages || []);
   }, [tagUsages]);
 
-  const visibleTags = useMemo(() => {
+  const visibleTags = useFilteredList(tags, (source) => {
     const query = searchQuery.trim().toLowerCase();
     const filtered = query
-      ? tags.filter((tag) => (tag.tag_name || '').toLowerCase().includes(query))
-      : tags;
+      ? source.filter((tag) => (tag.tag_name || '').toLowerCase().includes(query))
+      : source;
 
     return [...filtered].sort((a, b) => {
       const aCount = Number(a.count ?? 0);
       const bCount = Number(b.count ?? 0);
       return countSortOrder === 'asc' ? aCount - bCount : bCount - aCount;
     });
-  }, [tags, searchQuery, countSortOrder]);
+  }, [searchQuery, countSortOrder]);
 
   const renderStatusIcon = (isActive) => {
     if (isActive) {
