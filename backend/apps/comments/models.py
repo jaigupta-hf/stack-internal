@@ -24,6 +24,11 @@ class Comment(models.Model):
 
     class Meta:
         db_table = 'comments'
+        indexes = [
+            models.Index(fields=['post', 'created_at', 'id'], name='cmt_post_created_id_idx'),
+            models.Index(fields=['collection', 'created_at', 'id'], name='cmt_coll_created_id_idx'),
+            models.Index(fields=['parent_comment'], name='cmt_parent_comment_idx'),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=(

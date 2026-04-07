@@ -34,6 +34,31 @@ At a high level, it handles:
 - Bearer token is attached automatically by axios interceptor.
 - 401 responses clear token state and force a return to login.
 
+### Pagination-Aware Service Methods
+
+The service layer now supports optional pagination parameters on list endpoints.
+
+- Shared option shape: `{ page?: number, pageSize?: number }`
+- `pageSize` is translated to backend query param `page_size`
+- Existing methods that historically returned arrays remain backward compatible.
+
+Examples:
+
+```js
+// Backward-compatible array usage
+const questions = await postService.listQuestions(teamId);
+
+// Pagination-aware payload usage
+const questionPage = await postService.listQuestionsPage(teamId, { page: 2, pageSize: 20 });
+// questionPage => { items: [...], pagination: {...} }
+
+const collectionPage = await collectionService.listCollectionsPage(teamId, { page: 1, pageSize: 12 });
+const teamUsersPage = await teamService.listTeamUsersPage(teamId, { page: 1, pageSize: 25 });
+
+// Reputation already returns grouped payload + pagination; now supports page/pageSize options
+const history = await reputationService.listHistory(teamId, profileUserId, { page: 1, pageSize: 30 });
+```
+
 ## Running Locally
 
 ```bash

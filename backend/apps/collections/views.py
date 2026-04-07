@@ -1,32 +1,29 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from apps.pagination import parse_pagination_params, paginate_queryset
-from teams.models import TeamUser
-from teams.utils import get_team_member_name
+from teams.permissions import ensure_team_membership, ensure_team_admin, get_team_membership
 from posts.models import Post
+from posts.constants import COLLECTION_ELIGIBLE_POST_TYPE_VALUES, COLLECTION_POST_SEARCH_LIMIT, POST_TYPE_TO_LABEL
 from comments.models import Comment
 from votes.models import Vote
 from posts.models import Bookmark
 from .models import Collection, PostCollection
-from .serializers import CreateCollectionSerializer
-
-
-POST_TYPE_TO_LABEL = {
-    0: 'Question',
-    20: 'Announcement',
-    21: 'How-to Guide',
-    22: 'Knowledge Article',
-    23: 'Policy',
-}
-
-
-def _display_name(team_id, user_id):
-    return get_team_member_name(team_id, user_id)
-
+from .serializers import (
+    AddCollectionPostSerializer,
+    CollectionCommentCreateSerializer,
+    CollectionCommentOutputSerializer,
+    CollectionDetailOutputSerializer,
+    CollectionListOutputSerializer,
+    CollectionPostOutputSerializer,
+    CollectionSearchPostOutputSerializer,
+    CollectionSummaryOutputSerializer,
+    CollectionVoteOutputSerializer,
+    CreateCollectionSerializer,
+)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -41,12 +38,13 @@ def create_collection(request):
     title = serializer.validated_data['title'].strip()
     description = serializer.validated_data.get('description', '').strip()
 
-    membership = TeamUser.objects.filter(team=team, user=user).first()
-    if not membership:
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
-
-    if not membership.is_admin:
-        return Response({'error': 'Only team admins can create collections'}, status=status.HTTP_403_FORBIDDEN)
+    membership = get_team_membership(team=team, user=user)
+    admin_error = ensure_team_admin(
+        membership=membership,
+        error_message='Only team admins can create collections',
+    )
+    if admin_error:
+        return admin_error
 
     collection = Collection.objects.create(
         title=title,
@@ -55,22 +53,22 @@ def create_collection(request):
         user=user,
     )
 
-    return Response(
-        {
-            'id': collection.id,
-            'title': collection.title,
-            'description': collection.description,
-            'team': collection.team_id,
-            'user': collection.user_id,
-            'user_name': _display_name(collection.team_id, user.id),
-            'created_at': collection.created_at,
-            'modified_at': collection.modified_at,
-            'views_count': collection.views_count,
-            'post_count': 0,
-            'bookmarks_count': collection.bookmarks_count,
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    payload = {
+        'id': collection.id,
+        'title': collection.title,
+        'description': collection.description,
+        'team': collection.team_id,
+        'user': collection.user_id,
+        'user_name': user.name,
+        'created_at': collection.created_at,
+        'modified_at': collection.modified_at,
+        'views_count': collection.views_count,
+        'post_count': 0,
+        'bookmarks_count': collection.bookmarks_count,
+    }
+    output = CollectionSummaryOutputSerializer(data=payload)
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -82,8 +80,9 @@ def list_collections(request):
     if not team_id:
         return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if not TeamUser.objects.filter(team_id=team_id, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team_id=team_id, user=user)
+    if membership_error:
+        return membership_error
 
     page, page_size = parse_pagination_params(request)
 
@@ -102,7 +101,7 @@ def list_collections(request):
             'description': collection.description,
             'team': collection.team_id,
             'user': collection.user_id,
-            'user_name': _display_name(collection.team_id, collection.user_id),
+            'user_name': collection.user.name,
             'created_at': collection.created_at,
             'modified_at': collection.modified_at,
             'views_count': collection.views_count,
@@ -112,7 +111,9 @@ def list_collections(request):
         for collection in collections
     ]
 
-    return Response({'items': data, 'pagination': pagination}, status=status.HTTP_200_OK)
+    output = CollectionListOutputSerializer(data={'items': data, 'pagination': pagination})
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -125,8 +126,9 @@ def collection_detail(request, collection_id):
     except Collection.DoesNotExist:
         return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=collection.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=collection.team, user=user)
+    if membership_error:
+        return membership_error
 
     Collection.objects.filter(id=collection.id).update(views_count=F('views_count') + 1)
     collection.refresh_from_db(fields=['views_count'])
@@ -167,7 +169,7 @@ def collection_detail(request, collection_id):
             'type_label': POST_TYPE_TO_LABEL.get(item.post.type, 'Post'),
             'title': item.post.title,
             'sequence_number': item.sequence_number,
-            'user_name': _display_name(collection.team_id, item.post.user_id),
+            'user_name': item.post.user.name,
             'created_at': item.post.created_at,
         }
         for item in collection_posts
@@ -181,7 +183,7 @@ def collection_detail(request, collection_id):
             'created_at': comment.created_at,
             'modified_at': comment.modified_at,
             'user': comment.user_id,
-            'user_name': _display_name(collection.team_id, comment.user_id),
+            'user_name': comment.user.name,
             'vote_count': comment.vote_count,
             'parent_comment': comment.parent_comment_id,
             'current_user_vote': comment_vote_map.get(comment.id, 0),
@@ -189,14 +191,14 @@ def collection_detail(request, collection_id):
         for comment in collection_comments
     ]
 
-    return Response(
-        {
+    output = CollectionDetailOutputSerializer(
+        data={
             'id': collection.id,
             'title': collection.title,
             'description': collection.description,
             'team': collection.team_id,
             'user': collection.user_id,
-            'user_name': _display_name(collection.team_id, collection.user_id),
+            'user_name': collection.user.name,
             'created_at': collection.created_at,
             'modified_at': collection.modified_at,
             'views_count': collection.views_count,
@@ -207,9 +209,10 @@ def collection_detail(request, collection_id):
             'is_bookmarked': is_bookmarked,
             'posts': posts_payload,
             'comments': comments_payload,
-        },
-        status=status.HTTP_200_OK,
+        }
     )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -222,8 +225,9 @@ def upvote_collection(request, collection_id):
     except Collection.DoesNotExist:
         return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=collection.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=collection.team, user=user)
+    if membership_error:
+        return membership_error
 
     with transaction.atomic():
         _, created = Vote.objects.get_or_create(
@@ -238,14 +242,15 @@ def upvote_collection(request, collection_id):
 
     collection.refresh_from_db(fields=['vote_count'])
 
-    return Response(
-        {
+    output = CollectionVoteOutputSerializer(
+        data={
             'collection_id': collection.id,
             'vote': 1,
             'vote_count': collection.vote_count,
-        },
-        status=status.HTTP_200_OK,
+        }
     )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -258,8 +263,9 @@ def remove_collection_upvote(request, collection_id):
     except Collection.DoesNotExist:
         return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=collection.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=collection.team, user=user)
+    if membership_error:
+        return membership_error
 
     with transaction.atomic():
         deleted_count, _ = Vote.objects.filter(
@@ -273,14 +279,15 @@ def remove_collection_upvote(request, collection_id):
 
     collection.refresh_from_db(fields=['vote_count'])
 
-    return Response(
-        {
+    output = CollectionVoteOutputSerializer(
+        data={
             'collection_id': collection.id,
             'vote': 0,
             'vote_count': collection.vote_count,
-        },
-        status=status.HTTP_200_OK,
+        }
     )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -293,12 +300,15 @@ def create_collection_comment(request, collection_id):
     except Collection.DoesNotExist:
         return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=collection.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=collection.team, user=user)
+    if membership_error:
+        return membership_error
 
-    body = str(request.data.get('body', '')).strip()
-    if not body:
-        return Response({'error': 'body cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+    create_comment_serializer = CollectionCommentCreateSerializer(data=request.data)
+    if not create_comment_serializer.is_valid():
+        return Response(create_comment_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    body = create_comment_serializer.validated_data['body']
 
     comment = Comment.objects.create(
         post=None,
@@ -307,21 +317,22 @@ def create_collection_comment(request, collection_id):
         body=body,
     )
 
-    return Response(
-        {
+    output = CollectionCommentOutputSerializer(
+        data={
             'id': comment.id,
             'collection_id': comment.collection_id,
             'body': comment.body,
             'created_at': comment.created_at,
             'modified_at': comment.modified_at,
             'user': comment.user_id,
-            'user_name': _display_name(collection.team_id, comment.user_id),
+            'user_name': user.name,
             'vote_count': comment.vote_count,
             'parent_comment': comment.parent_comment_id,
             'current_user_vote': 0,
-        },
-        status=status.HTTP_201_CREATED,
+        }
     )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['GET'])
@@ -334,8 +345,9 @@ def search_posts_for_collection(request, collection_id):
     except Collection.DoesNotExist:
         return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if not TeamUser.objects.filter(team=collection.team, user=user).exists():
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership_error = ensure_team_membership(team=collection.team, user=user)
+    if membership_error:
+        return membership_error
 
     query = (request.query_params.get('q') or '').strip()
     if not query:
@@ -344,12 +356,12 @@ def search_posts_for_collection(request, collection_id):
     posts = (
         Post.objects.filter(
             team=collection.team,
-            type__in=(0, 20, 21, 22, 23),
+            type__in=COLLECTION_ELIGIBLE_POST_TYPE_VALUES,
             delete_flag=False,
             title__icontains=query,
         )
         .select_related('user')
-        .order_by('-created_at')[:20]
+        .order_by('-created_at')[:COLLECTION_POST_SEARCH_LIMIT]
     )
 
     existing_ids = set(
@@ -362,14 +374,16 @@ def search_posts_for_collection(request, collection_id):
             'type': post.type,
             'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
             'title': post.title,
-            'user_name': _display_name(collection.team_id, post.user_id),
+            'user_name': post.user.name,
             'created_at': post.created_at,
             'already_added': post.id in existing_ids,
         }
         for post in posts
     ]
 
-    return Response(data, status=status.HTTP_200_OK)
+    output = CollectionSearchPostOutputSerializer(data=data, many=True)
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
@@ -382,48 +396,58 @@ def add_post_to_collection(request, collection_id):
     except Collection.DoesNotExist:
         return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    membership = TeamUser.objects.filter(team=collection.team, user=user).first()
-    if not membership:
-        return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+    membership = get_team_membership(team=collection.team, user=user)
+    admin_error = ensure_team_admin(
+        membership=membership,
+        error_message='Only team admins can add posts to collections',
+    )
+    if admin_error:
+        return admin_error
 
-    if not membership.is_admin:
-        return Response({'error': 'Only team admins can add posts to collections'}, status=status.HTTP_403_FORBIDDEN)
+    add_post_serializer = AddCollectionPostSerializer(data=request.data)
+    if not add_post_serializer.is_valid():
+        return Response(add_post_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    post_id = request.data.get('post_id')
-    if post_id is None:
-        return Response({'error': 'post_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    post_id = add_post_serializer.validated_data['post_id']
 
     try:
         post = Post.objects.select_related('user').get(
             id=post_id,
             team=collection.team,
-            type__in=(0, 20, 21, 22, 23),
+            type__in=COLLECTION_ELIGIBLE_POST_TYPE_VALUES,
             delete_flag=False,
         )
     except Post.DoesNotExist:
         return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if PostCollection.objects.filter(collection=collection, post=post).exists():
-        return Response({'error': 'Post already added to this collection'}, status=status.HTTP_400_BAD_REQUEST)
+    with transaction.atomic():
+        Collection.objects.select_for_update().filter(id=collection.id).first()
 
-    max_sequence = PostCollection.objects.filter(collection=collection).aggregate(max_value=Max('sequence_number'))
-    next_sequence = (max_sequence.get('max_value') or 0) + 1
+        if PostCollection.objects.filter(collection=collection, post=post).exists():
+            return Response({'error': 'Post already added to this collection'}, status=status.HTTP_400_BAD_REQUEST)
 
-    post_collection = PostCollection.objects.create(
-        collection=collection,
-        post=post,
-        sequence_number=next_sequence,
-    )
+        max_sequence = PostCollection.objects.filter(collection=collection).aggregate(max_value=Max('sequence_number'))
+        next_sequence = (max_sequence.get('max_value') or 0) + 1
 
-    return Response(
-        {
+        try:
+            post_collection = PostCollection.objects.create(
+                collection=collection,
+                post=post,
+                sequence_number=next_sequence,
+            )
+        except IntegrityError:
+            return Response({'error': 'Could not add post to collection. Please retry.'}, status=status.HTTP_409_CONFLICT)
+
+    output = CollectionPostOutputSerializer(
+        data={
             'post_id': post_collection.post_id,
             'type': post.type,
             'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
             'title': post.title,
             'sequence_number': post_collection.sequence_number,
-            'user_name': _display_name(collection.team_id, post.user_id),
+            'user_name': post.user.name,
             'created_at': post.created_at,
-        },
-        status=status.HTTP_201_CREATED,
+        }
     )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_201_CREATED)

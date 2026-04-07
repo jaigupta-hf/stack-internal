@@ -1,8 +1,8 @@
-import { api } from './config';
+import { api, withPaginationParams } from './config';
 
 export const reputationService = {
-  async listHistory(teamId, userId = null) {
-    const params = { team_id: teamId };
+  async listHistory(teamId, userId = null, options = {}) {
+    const params = withPaginationParams({ team_id: teamId }, options);
     if (userId) {
       params.user_id = userId;
     }

@@ -3,14 +3,21 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from teams.models import TeamUser
+from teams.permissions import ensure_team_membership
 from teams.utils import get_team_member_name
 from users.models import User
 from apps.collections.models import Collection
 from posts.models import Post
 from posts.models import PostFollow
 from notifications.api import create_notification
+from notifications.constants import (
+	NOTIFICATION_REASON_ANSWER_COMMENTED,
+	NOTIFICATION_REASON_COMMENT_REPLIED,
+	NOTIFICATION_REASON_NEW_COMMENT_ON_FOLLOWED_POST,
+	NOTIFICATION_REASON_QUESTION_COMMENTED,
+)
 from .models import Comment
+from .serializers import CommentOutputSerializer, CreateCommentInputSerializer, UpdateCommentInputSerializer
 
 
 def _notify_question_followers(*, question, triggered_by, reason):
@@ -41,13 +48,15 @@ def _notify_question_followers(*, question, triggered_by, reason):
 def create_comment(request):
 	user = request.user
 
-	parent_comment_id = request.data.get('parent_comment_id')
-	post_id = request.data.get('post_id')
-	collection_id = request.data.get('collection_id')
-	body = str(request.data.get('body', '')).strip()
+	input_serializer = CreateCommentInputSerializer(data=request.data)
+	if not input_serializer.is_valid():
+		return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-	if not body:
-		return Response({'error': 'body cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+	validated = input_serializer.validated_data
+	parent_comment_id = validated.get('parent_comment_id')
+	post_id = validated.get('post_id')
+	collection_id = validated.get('collection_id')
+	body = validated['body']
 
 	parent_comment = None
 	is_reply = bool(parent_comment_id)
@@ -89,8 +98,9 @@ def create_comment(request):
 				return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 			target_team = collection.team
 
-	if not TeamUser.objects.filter(team=target_team, user=user).exists():
-		return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+	membership_error = ensure_team_membership(team=target_team, user=user)
+	if membership_error:
+		return membership_error
 
 	comment = Comment.objects.create(
 		post=post,
@@ -106,32 +116,32 @@ def create_comment(request):
 			post=comment.post,
 			user=parent_comment.user,
 			triggered_by=user,
-			reason='comment_replied',
+			reason=NOTIFICATION_REASON_COMMENT_REPLIED,
 		)
 	elif post and post.type == 0:
 		create_notification(
 			post=post,
 			user=post.user,
 			triggered_by=user,
-			reason='question_commented',
+			reason=NOTIFICATION_REASON_QUESTION_COMMENTED,
 		)
 	elif post and post.type == 1:
 		create_notification(
 			post=post,
 			user=post.user,
 			triggered_by=user,
-			reason='answer_commented',
+			reason=NOTIFICATION_REASON_ANSWER_COMMENTED,
 		)
 
 	if post and post.type == 0:
 		_notify_question_followers(
 			question=post,
 			triggered_by=user,
-			reason='new_comment_on_followed_post',
+			reason=NOTIFICATION_REASON_NEW_COMMENT_ON_FOLLOWED_POST,
 		)
 
-	return Response(
-		{
+	output = CommentOutputSerializer(
+		data={
 			'id': comment.id,
 			'post_id': comment.post_id,
 			'collection_id': comment.collection_id,
@@ -143,9 +153,10 @@ def create_comment(request):
 			'vote_count': comment.vote_count,
 			'parent_comment': comment.parent_comment_id,
 			'current_user_vote': 0,
-		},
-		status=status.HTTP_201_CREATED,
+		}
 	)
+	output.is_valid(raise_exception=True)
+	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['PATCH', 'DELETE'])
@@ -160,8 +171,9 @@ def comment_detail(request, comment_id):
 
 	target_team = comment.post.team if comment.post_id else comment.collection.team
 
-	if not TeamUser.objects.filter(team=target_team, user=user).exists():
-		return Response({'error': 'You are not a member of this team'}, status=status.HTTP_403_FORBIDDEN)
+	membership_error = ensure_team_membership(team=target_team, user=user)
+	if membership_error:
+		return membership_error
 
 	if comment.user_id != user.id:
 		return Response({'error': 'Only the author can modify this comment'}, status=status.HTTP_403_FORBIDDEN)
@@ -170,15 +182,16 @@ def comment_detail(request, comment_id):
 		comment.delete()
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
-	body = str(request.data.get('body', '')).strip()
-	if not body:
-		return Response({'error': 'body cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+	input_serializer = UpdateCommentInputSerializer(data=request.data)
+	if not input_serializer.is_valid():
+		return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+	body = input_serializer.validated_data['body']
 
 	comment.body = body
 	comment.save(update_fields=['body', 'modified_at'])
 
-	return Response(
-		{
+	output = CommentOutputSerializer(
+		data={
 			'id': comment.id,
 			'post_id': comment.post_id,
 			'collection_id': comment.collection_id,
@@ -189,6 +202,7 @@ def comment_detail(request, comment_id):
 			'user_name': get_team_member_name(target_team.id, comment.user_id),
 			'vote_count': comment.vote_count,
 			'parent_comment': comment.parent_comment_id,
-		},
-		status=status.HTTP_200_OK,
+		}
 	)
+	output.is_valid(raise_exception=True)
+	return Response(output.data, status=status.HTTP_200_OK)
