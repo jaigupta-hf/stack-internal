@@ -22,7 +22,7 @@ class ReputationHistoryItemOutputSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField()
     triggered_by_id = serializers.IntegerField()
     post_id = serializers.IntegerField()
-    post_title = serializers.CharField()
+    post_title = serializers.CharField(allow_blank=True)
     post_type = serializers.IntegerField()
     reference_type = serializers.CharField()
     reference_post_id = serializers.IntegerField()

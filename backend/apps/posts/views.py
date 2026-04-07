@@ -21,6 +21,7 @@ from .serializers import (
 from tags.api import sync_post_tags, sync_user_tags_for_post
 from notifications.api import create_notification
 from reputation.api import apply_reputation_change
+from reputation.constants import ANSWER_ACCEPT_GAIN, ANSWER_UNACCEPT_LOSS
 from .views_common import (
 	_first_serializer_error,
 	_notify_question_followers,
@@ -337,7 +338,7 @@ def approve_answer(request, question_id):
 					team=question.team,
 					triggered_by=user,
 					post=previous_approved_answer,
-					points=-15,
+					points=ANSWER_UNACCEPT_LOSS,
 					reason='unaccept',
 				)
 
@@ -373,7 +374,7 @@ def approve_answer(request, question_id):
 				team=question.team,
 				triggered_by=user,
 				post=previous_approved_answer,
-				points=-15,
+				points=ANSWER_UNACCEPT_LOSS,
 				reason='unaccept',
 			)
 
@@ -383,7 +384,7 @@ def approve_answer(request, question_id):
 				team=question.team,
 				triggered_by=user,
 				post=answer,
-				points=15,
+				points=ANSWER_ACCEPT_GAIN,
 				reason='accept',
 			)
 
