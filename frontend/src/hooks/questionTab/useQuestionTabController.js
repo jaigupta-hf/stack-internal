@@ -13,6 +13,8 @@ import {
   isActuallyEdited,
 } from './questionTabConstants';
 
+const DEFAULT_QUESTION_LIST_PAGE_SIZE = 20;
+
 function useQuestionTabController({ team }) {
   const [showAskModal, setShowAskModal] = useState(false);
   const [questionTitle, setQuestionTitle] = useState('');
@@ -82,6 +84,9 @@ function useQuestionTabController({ team }) {
   const [selectedDuplicate, setSelectedDuplicate] = useState(null);
   const [questionFilter, setQuestionFilter] = useState('newest');
   const [selectedTagFilter, setSelectedTagFilter] = useState('');
+  const [questionPage, setQuestionPage] = useState(1);
+  const [questionPageSize, setQuestionPageSize] = useState(DEFAULT_QUESTION_LIST_PAGE_SIZE);
+  const [questionPagination, setQuestionPagination] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
   const [mentionSearchOpen, setMentionSearchOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState('');
@@ -118,23 +123,83 @@ function useQuestionTabController({ team }) {
     loadTagPreferences,
   } = useTagPreferences({ teamId: team?.id, clearPreferencesOnLoadError: false });
 
-  const loadQuestions = async () => {
+  const loadQuestions = useCallback(async (requestedPage = questionPage, requestedPageSize = questionPageSize) => {
+    if (!team?.id) {
+      setQuestions([]);
+      setQuestionPagination(null);
+      return;
+    }
+
     setLoadingQuestions(true);
     setListError('');
 
     try {
-      const data = await postService.listQuestions(team.id);
-      setQuestions(Array.isArray(data) ? data : []);
+      const payload = await postService.listQuestionsPage(team.id, {
+        page: requestedPage,
+        pageSize: requestedPageSize,
+      });
+
+      const nextQuestions = Array.isArray(payload?.items) ? payload.items : [];
+      const nextPagination = payload?.pagination ?? null;
+
+      setQuestions(nextQuestions);
+      setQuestionPagination(nextPagination);
+
+      if (nextPagination?.total_pages && requestedPage > nextPagination.total_pages) {
+        setQuestionPage(nextPagination.total_pages);
+      }
+
+      if (nextPagination?.total_pages === 0 && requestedPage !== 1) {
+        setQuestionPage(1);
+      }
     } catch (err) {
       setListError(err.response?.data?.error || 'Failed to load questions.');
+      setQuestionPagination(null);
     } finally {
       setLoadingQuestions(false);
     }
-  };
+  }, [questionPage, questionPageSize, team?.id]);
+
+  useEffect(() => {
+    setQuestionPage(1);
+  }, [team?.id]);
 
   useEffect(() => {
     loadQuestions();
-  }, [team.id]);
+  }, [loadQuestions]);
+
+  const handleQuestionsPrevPage = useCallback(() => {
+    setQuestionPage((prev) => Math.max(prev - 1, 1));
+  }, []);
+
+  const handleQuestionsNextPage = useCallback(() => {
+    setQuestionPage((prev) => {
+      if (questionPagination && !questionPagination.has_next) {
+        return prev;
+      }
+      return prev + 1;
+    });
+  }, [questionPagination]);
+
+  const handleQuestionsGoToPage = useCallback((page) => {
+    if (!questionPagination) {
+      return;
+    }
+
+    const maxPage = Math.max(questionPagination.total_pages || 1, 1);
+    const nextPage = Math.min(Math.max(page, 1), maxPage);
+    setQuestionPage(nextPage);
+  }, [questionPagination]);
+
+  const handleQuestionPageSizeChange = useCallback((nextPageSize) => {
+    const parsed = Number(nextPageSize);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return;
+    }
+
+    setQuestionPageSize(parsed);
+    setQuestionPage(1);
+  }, []);
 
   const visibleQuestions = useMemo(() => {
     let next = [...questions];
@@ -440,7 +505,7 @@ function useQuestionTabController({ team }) {
         const matches = await tagService.searchTags(query);
         const selected = new Set(editQuestionTags.map((tag) => tag.toLowerCase()));
         setEditTagSuggestions(matches.filter((tag) => !selected.has(tag.name.toLowerCase())));
-      } catch (_err) {
+      } catch {
         setEditTagSuggestions([]);
       } finally {
         setSearchingEditTags(false);
@@ -467,7 +532,7 @@ function useQuestionTabController({ team }) {
         const matches = await tagService.searchTags(query);
         const selected = new Set(questionTags.map((tag) => tag.toLowerCase()));
         setTagSuggestions(matches.filter((tag) => !selected.has(tag.name.toLowerCase())));
-      } catch (_err) {
+      } catch {
         setTagSuggestions([]);
       } finally {
         setSearchingTags(false);
@@ -565,7 +630,8 @@ function useQuestionTabController({ team }) {
       setTagSuggestions([]);
       setTagError('');
       setShowAskModal(false);
-      await loadQuestions();
+      setQuestionPage(1);
+      await loadQuestions(1);
       await loadTagPreferences();
     } catch (err) {
       setQuestionError(err.response?.data?.error || 'Failed to post question. Please try again.');
@@ -1554,6 +1620,9 @@ function useQuestionTabController({ team }) {
     setQuestionFilter,
     selectedTagFilter,
     setSelectedTagFilter,
+    questionPage,
+    questionPageSize,
+    questionPagination,
     teamMembers,
     setTeamMembers,
     mentionSearchOpen,
@@ -1597,6 +1666,10 @@ function useQuestionTabController({ team }) {
     ignoredTagNameSet,
     handleSetTagPreference,
     loadQuestions,
+    handleQuestionsPrevPage,
+    handleQuestionsNextPage,
+    handleQuestionsGoToPage,
+    handleQuestionPageSizeChange,
     visibleQuestions,
     questionTagCounts,
     resetQuestionDetailState,

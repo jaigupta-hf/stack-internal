@@ -1,6 +1,28 @@
 import ListingCard from '../ListingCard';
 import TagPreferencesPanel from '../TagPreferencesPanel';
 
+const QUESTION_PAGE_SIZE_OPTIONS = [10, 20, 40];
+
+const getVisiblePageNumbers = (pagination, windowSize = 5) => {
+  const totalPages = Math.max(pagination?.total_pages || 1, 1);
+  const currentPage = Math.min(Math.max(pagination?.page || 1, 1), totalPages);
+  const halfWindow = Math.floor(windowSize / 2);
+
+  let startPage = Math.max(currentPage - halfWindow, 1);
+  let endPage = Math.min(startPage + windowSize - 1, totalPages);
+
+  if (endPage - startPage + 1 < windowSize) {
+    startPage = Math.max(endPage - windowSize + 1, 1);
+  }
+
+  const pages = [];
+  for (let page = startPage; page <= endPage; page += 1) {
+    pages.push(page);
+  }
+
+  return pages;
+};
+
 function QuestionListPanel({ controller, embeddedMode = false, onOpenUserProfile }) {
   const {
     selectedQuestion,
@@ -15,10 +37,16 @@ function QuestionListPanel({ controller, embeddedMode = false, onOpenUserProfile
     setQuestionFilter,
     selectedTagFilter,
     setSelectedTagFilter,
+    questionPageSize,
+    questionPagination,
     listError,
     loadingQuestions,
     questions,
     visibleQuestions,
+    handleQuestionsPrevPage,
+    handleQuestionsNextPage,
+    handleQuestionsGoToPage,
+    handleQuestionPageSizeChange,
     watchedTagIdSet,
     watchedTagNameSet,
     ignoredTagIdSet,
@@ -319,6 +347,63 @@ function QuestionListPanel({ controller, embeddedMode = false, onOpenUserProfile
               </div>
             </aside>
           </div>
+
+          {!loadingQuestions && questionPagination ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p className="text-xs text-slate-300">
+                Page {questionPagination.page} of {Math.max(questionPagination.total_pages || 1, 1)}
+                {' '}•{' '}Total {questionPagination.total_items ?? questions.length} questions
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-xs text-slate-300">
+                  <span>Per page</span>
+                  <select
+                    value={questionPageSize}
+                    onChange={(e) => handleQuestionPageSizeChange(e.target.value)}
+                    className="rounded-full border border-white/15 bg-white/10 px-2 py-1 text-xs text-slate-100 outline-none"
+                  >
+                    {QUESTION_PAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={`question-page-size-${option}`} value={option} className="bg-[#111821] text-slate-100">
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleQuestionsPrevPage}
+                  disabled={!questionPagination.has_previous}
+                  className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={handleQuestionsNextPage}
+                  disabled={!questionPagination.has_next}
+                  className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Next
+                </button>
+
+                {getVisiblePageNumbers(questionPagination).map((page) => (
+                  <button
+                    key={`question-page-${page}`}
+                    type="button"
+                    onClick={() => handleQuestionsGoToPage(page)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                      page === questionPagination.page
+                        ? 'border-cyan-300/0 bg-cyan-300/20 text-cyan-100'
+                        : 'border-white/15 bg-white/10 text-slate-200 hover:bg-white/20'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>
