@@ -10,6 +10,7 @@ import useCollectionUrlState, { useSyncCollectionUrlState } from './useCollectio
 import useThreadedComments from './useThreadedComments';
 
 const articleTypes = new Set([20, 21, 22, 23]);
+const COLLECTION_LIST_PAGE_SIZE = 18;
 
 const formatCollectionTime = (timestamp) => formatRelativeTimestamp(timestamp);
 
@@ -25,6 +26,9 @@ const isArticlePost = (post) => articleTypes.has(Number(post.type));
 
 function useCollectionsTabController({ team }) {
   const [collections, setCollections] = useState([]);
+  const [collectionsPage, setCollectionsPage] = useState(1);
+  const [collectionsPageSize, setCollectionsPageSize] = useState(COLLECTION_LIST_PAGE_SIZE);
+  const [collectionsPagination, setCollectionsPagination] = useState(null);
   const [loading, setLoading] = useState(false);
   const [openingCollection, setOpeningCollection] = useState(false);
   const [error, setError] = useState('');
@@ -69,6 +73,10 @@ function useCollectionsTabController({ team }) {
     resetCommentSectionState,
   } = useCommentSectionState();
 
+  useEffect(() => {
+    setCollectionsPage(1);
+  }, [team?.id]);
+
   const clearCollectionSelectionFromUrl = useCallback(() => {
     setSelectedCollection(null);
     setSelectedCollectionPost(null);
@@ -98,6 +106,7 @@ function useCollectionsTabController({ team }) {
     const loadCollections = async () => {
       if (!team?.id) {
         setCollections([]);
+        setCollectionsPagination(null);
         return;
       }
 
@@ -105,17 +114,68 @@ function useCollectionsTabController({ team }) {
       setError('');
 
       try {
-        const data = await collectionService.listCollections(team.id);
-        setCollections(Array.isArray(data) ? data : []);
+        const payload = await collectionService.listCollectionsPage(team.id, {
+          page: collectionsPage,
+          pageSize: collectionsPageSize,
+        });
+
+        const nextCollections = Array.isArray(payload?.items) ? payload.items : [];
+        const nextPagination = payload?.pagination ?? null;
+
+        setCollections(nextCollections);
+        setCollectionsPagination(nextPagination);
+
+        if (nextPagination?.total_pages && collectionsPage > nextPagination.total_pages) {
+          setCollectionsPage(nextPagination.total_pages);
+        }
+
+        if (nextPagination?.total_pages === 0 && collectionsPage !== 1) {
+          setCollectionsPage(1);
+        }
       } catch (err) {
         setError(err.response?.data?.error || 'Failed to load collections.');
+        setCollectionsPagination(null);
       } finally {
         setLoading(false);
       }
     };
 
     loadCollections();
-  }, [team?.id]);
+  }, [collectionsPage, collectionsPageSize, team?.id]);
+
+  const handleCollectionsPrevPage = () => {
+    setCollectionsPage((prev) => Math.max(prev - 1, 1));
+  };
+
+  const handleCollectionsNextPage = () => {
+    setCollectionsPage((prev) => {
+      if (collectionsPagination && !collectionsPagination.has_next) {
+        return prev;
+      }
+      return prev + 1;
+    });
+  };
+
+  const handleCollectionsGoToPage = (page) => {
+    const maxPage = Math.max(collectionsPagination?.total_pages || 1, 1);
+    const parsed = Number(page);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+
+    const targetPage = Math.min(Math.max(Math.floor(parsed), 1), maxPage);
+    setCollectionsPage(targetPage);
+  };
+
+  const handleCollectionPageSizeChange = (nextPageSize) => {
+    const parsed = Number(nextPageSize);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return;
+    }
+
+    setCollectionsPageSize(Math.floor(parsed));
+    setCollectionsPage(1);
+  };
 
   const resetForm = () => {
     setTitle('');
@@ -433,7 +493,7 @@ function useCollectionsTabController({ team }) {
         });
 
         setCollectionPostCards(nextCards);
-      } catch (_err) {
+      } catch {
         const fallbackCards = {};
         refs.forEach((ref) => {
           fallbackCards[Number(ref.post_id)] = { ...ref, post_id: Number(ref.post_id), type: Number(ref.type) };
@@ -506,6 +566,7 @@ function useCollectionsTabController({ team }) {
       });
 
       setCollections((prev) => [created, ...prev]);
+      setCollectionsPage(1);
       resetForm();
       setShowCreateModal(false);
     } catch (err) {
@@ -521,6 +582,9 @@ function useCollectionsTabController({ team }) {
 
   return {
     collections,
+    collectionsPage,
+    collectionsPageSize,
+    collectionsPagination,
     loading,
     openingCollection,
     error,
@@ -563,6 +627,10 @@ function useCollectionsTabController({ team }) {
     setShowDeletedTrees,
     setEditingCommentBody,
     resetForm,
+    handleCollectionsPrevPage,
+    handleCollectionsNextPage,
+    handleCollectionsGoToPage,
+    handleCollectionPageSizeChange,
     handleBackToCollections,
     handleBackToCollectionPosts,
     handleCollectionUpvote,
