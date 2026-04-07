@@ -90,3 +90,78 @@ class IsTeamMemberForNotification(BasePermission):
     # Allow access only when the user belongs to the notification's related post team.
     def has_object_permission(self, request, view, obj):
         return TeamUser.objects.filter(team=obj.post.team, user=request.user).exists()
+
+
+class IsTeamMember(BasePermission):
+    """Reusable permission that validates membership by team id or object.team."""
+
+    message = 'You are not a member of this team'
+
+    def _extract_team_id(self, request, view):
+        if hasattr(view, 'get_team_id_for_permission'):
+            return view.get_team_id_for_permission(request)
+
+        location = getattr(view, 'team_id_location', 'query_params')
+        param_name = getattr(view, 'team_id_param', 'team_id')
+        source = request.query_params if location == 'query_params' else request.data
+        return source.get(param_name)
+
+    def has_permission(self, request, view):
+        raw_team_id = self._extract_team_id(request, view)
+
+        # Defer required/format validation to serializers when team id is absent or malformed.
+        if raw_team_id in (None, ''):
+            return True
+
+        try:
+            team_id = int(raw_team_id)
+        except (TypeError, ValueError):
+            return True
+
+        return TeamUser.objects.filter(team_id=team_id, user=request.user).exists()
+
+    def has_object_permission(self, request, view, obj):
+        team = getattr(obj, 'team', None)
+        if team is None and getattr(obj, 'post', None) is not None:
+            team = obj.post.team
+        if team is None:
+            return True
+        return TeamUser.objects.filter(team=team, user=request.user).exists()
+
+
+class IsTeamAdmin(BasePermission):
+    """Reusable permission that validates admin role by team id or object.team."""
+
+    message = 'Only team admins can perform this action'
+
+    def _extract_team_id(self, request, view):
+        if hasattr(view, 'get_team_id_for_permission'):
+            return view.get_team_id_for_permission(request)
+
+        location = getattr(view, 'team_id_location', 'query_params')
+        param_name = getattr(view, 'team_id_param', 'team_id')
+        source = request.query_params if location == 'query_params' else request.data
+        return source.get(param_name)
+
+    def has_permission(self, request, view):
+        raw_team_id = self._extract_team_id(request, view)
+
+        if raw_team_id in (None, ''):
+            return True
+
+        try:
+            team_id = int(raw_team_id)
+        except (TypeError, ValueError):
+            return True
+
+        membership = get_team_membership(team_id=team_id, user=request.user)
+        return bool(membership and membership.is_admin)
+
+    def has_object_permission(self, request, view, obj):
+        team = getattr(obj, 'team', None)
+        if team is None and getattr(obj, 'post', None) is not None:
+            team = obj.post.team
+        if team is None:
+            return True
+        membership = get_team_membership(team=team, user=request.user)
+        return bool(membership and membership.is_admin)

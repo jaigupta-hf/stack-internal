@@ -1,18 +1,15 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
+
+from .viewsets import ArticleViewSet, QuestionViewSet
 from .views import (
-    create_question,
-    create_article,
     create_answer,
     update_answer,
     delete_answer,
     undelete_answer,
     approve_answer,
-    list_questions,
     search_questions,
     search_global_titles,
-    list_articles,
-    article_detail,
-    question_detail,
     follow_question,
     unfollow_question,
     add_question_mentions,
@@ -29,20 +26,23 @@ from .views import (
     list_followed_posts,
 )
 
+router = DefaultRouter()
+router.register(r'questions', QuestionViewSet, basename='question')
+router.register(r'articles', ArticleViewSet, basename='article')
+
+question_list_alias = QuestionViewSet.as_view({'get': 'list'})
+article_list_alias = ArticleViewSet.as_view({'get': 'list'})
+
 urlpatterns = [
-    path('questions/', create_question, name='create-question'),
-    path('articles/', create_article, name='create-article'),
     path('questions/<int:question_id>/answers/', create_answer, name='create-answer'),
     path('answers/<int:answer_id>/', update_answer, name='update-answer'),
     path('answers/<int:answer_id>/delete/', delete_answer, name='delete-answer'),
     path('answers/<int:answer_id>/undelete/', undelete_answer, name='undelete-answer'),
     path('questions/<int:question_id>/approve-answer/', approve_answer, name='approve-answer'),
-    path('questions/list/', list_questions, name='list-questions'),
+    path('questions/list/', question_list_alias, name='list-questions'),
     path('questions/search/', search_questions, name='search-questions'),
     path('search/global/', search_global_titles, name='search-global-titles'),
-    path('articles/list/', list_articles, name='list-articles'),
-    path('articles/<int:article_id>/', article_detail, name='article-detail'),
-    path('questions/<int:question_id>/', question_detail, name='question-detail'),
+    path('articles/list/', article_list_alias, name='list-articles'),
     path('questions/<int:question_id>/follow/', follow_question, name='follow-question'),
     path('questions/<int:question_id>/unfollow/', unfollow_question, name='unfollow-question'),
     path('questions/<int:question_id>/mentions/', add_question_mentions, name='add-question-mentions'),
@@ -57,4 +57,5 @@ urlpatterns = [
     path('bookmarks/remove/', remove_bookmark, name='remove-bookmark'),
     path('bookmarks/list/', list_bookmarks, name='list-bookmarks'),
     path('follows/list/', list_followed_posts, name='list-followed-posts'),
+    path('', include(router.urls)),
 ]
