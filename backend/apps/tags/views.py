@@ -17,6 +17,7 @@ from .serializers import (
 )
 
 
+# Search tags by name fragment and return top suggestions ranked by popularity and usage.
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def search_tags(request):
@@ -50,6 +51,7 @@ def search_tags(request):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# List all tags used by active posts in a team with aggregate usage and watch metadata.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_team_tags(request):
@@ -102,6 +104,7 @@ def list_team_tags(request):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Return the current user's tag preference records (watch/ignore) scoped to one team.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_tag_preferences(request):
@@ -148,6 +151,7 @@ def list_tag_preferences(request):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Update one tag preference for the current user and keep tag watch_count in sync atomically.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def update_tag_preference(request):

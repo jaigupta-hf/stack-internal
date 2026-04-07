@@ -12,6 +12,7 @@ from .models import ReputationHistory
 from .serializers import ReputationHistoryOutputSerializer, ReputationHistoryQuerySerializer
 
 
+# Return a paginated, day-grouped reputation timeline for a team member after membership checks.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_reputation_history(request):
@@ -45,6 +46,7 @@ def list_reputation_history(request):
     )
     history, pagination = paginate_queryset(history, page=page, page_size=page_size)
 
+    # Group entries by calendar date while preserving newest-first date order.
     grouped = OrderedDict()
     for item in history:
         group_key = item.created_at.date().isoformat()
@@ -55,6 +57,7 @@ def list_reputation_history(request):
                 'items': [],
             }
 
+        # Resolve navigation target so answer events still link back to the question thread.
         reference_type = 'article' if item.post.type >= 20 else 'question'
         reference_post_id = item.post.parent_id if item.post.type == 1 and item.post.parent_id else item.post_id
 

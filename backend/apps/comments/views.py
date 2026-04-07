@@ -20,6 +20,7 @@ from .models import Comment
 from .serializers import CommentOutputSerializer, CreateCommentInputSerializer, UpdateCommentInputSerializer
 
 
+# Notify followers of a question when a new comment is added, skipping missing users.
 def _notify_question_followers(*, question, triggered_by, reason):
 	follower_ids = list(PostFollow.objects.filter(post=question).values_list('user_id', flat=True))
 	if not follower_ids:
@@ -43,6 +44,7 @@ def _notify_question_followers(*, question, triggered_by, reason):
 		)
 
 
+# Create a new comment or reply on a post/collection, enforce reply-depth and team access, and emit notifications.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_comment(request):
@@ -159,6 +161,7 @@ def create_comment(request):
 	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Update or delete an existing comment, allowing changes only for the comment author within the same team.
 @api_view(['PATCH', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def comment_detail(request, comment_id):

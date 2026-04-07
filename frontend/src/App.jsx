@@ -14,7 +14,7 @@ import BookmarksTab from './pages/navigationTabs/BookmarksTab';
 import TagsTab from './pages/navigationTabs/TagsTab';
 import UsersTab from './pages/navigationTabs/UsersTab';
 
-import { authService, teamService } from './services/api';
+import { authService, teamService, postService, notificationService } from './services/api';
 
 const TABS = ['Home', 'Questions', 'Articles', 'Collections', 'For You', 'Bookmarks', 'Tags', 'Users', 'Admin Settings'];
 const TAB_SLUGS = {
@@ -219,7 +219,7 @@ function App() {
         try {
           const userData = await authService.getCurrentUser();
           setUser(userData);
-        } catch (err) {
+        } catch {
           console.log('Session expired or invalid token');
           // Token is invalid, it will be cleared by the interceptor
         }
@@ -269,7 +269,7 @@ function App() {
     };
 
     loadCurrentTeamReputation();
-  }, [user?.id, activeTeam?.id, isTeamMember]);
+  }, [user, activeTeam?.id, isTeamMember]);
 
   useEffect(() => {
     if (!teamSwitcherOpen) {
@@ -371,7 +371,7 @@ function App() {
           setShowProfilePage(false);
           setProfileUserId(null);
         }
-      } catch (_err) {
+      } catch {
         replaceTeamsUrl();
       }
     };
@@ -430,7 +430,7 @@ function App() {
           setShowProfilePage(false);
           setProfileUserId(null);
         }
-      } catch (_err) {
+      } catch {
         replaceTeamsUrl();
         setActiveTeam(null);
         setActiveTab('Home');
@@ -756,7 +756,7 @@ function App() {
                                     {item.type} •{' '}
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenProfile(item.user_id || item.user)}
+                                      onClick={() => handleOpenUserProfile(item.user_id || item.user)}
                                       className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
                                     >
                                       {item.user_name}

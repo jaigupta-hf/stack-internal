@@ -16,7 +16,7 @@ from .serializers import (
 )
 
 
-# List current user's teams, or create a new team and auto-add creator as admin.
+# List the user's joined teams (GET) or create a new team and add the creator as an admin (POST).
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def teams_handler(request):
@@ -50,7 +50,7 @@ def teams_handler(request):
 	return Response(TeamSerializer(team).data, status=status.HTTP_201_CREATED)
 
 
-# Return team metadata by slug and membership flags for current user.
+# Look up a team by slug and return membership/admin flags for the current user.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def team_by_slug_handler(request, url_endpoint):
@@ -76,6 +76,7 @@ def team_by_slug_handler(request, url_endpoint):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Join a team for the current user, returning whether membership already existed.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def join_team_handler(request, team_id):
@@ -117,6 +118,7 @@ def join_team_handler(request, team_id):
 	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Return a paginated member list for a team after confirming the requester belongs to it.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def team_users_handler(request, team_id):
@@ -156,6 +158,7 @@ def team_users_handler(request, team_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Promote a team member to admin role (admin-only action).
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def make_team_admin_handler(request, team_id, user_id):
@@ -190,6 +193,7 @@ def make_team_admin_handler(request, team_id, user_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Demote an admin back to member while preserving at least one admin in the team.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def make_team_member_handler(request, team_id, user_id):
@@ -228,6 +232,7 @@ def make_team_member_handler(request, team_id, user_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Remove a member from a team (admin-only), preventing self-removal and last-admin removal.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_team_user_handler(request, team_id, user_id):

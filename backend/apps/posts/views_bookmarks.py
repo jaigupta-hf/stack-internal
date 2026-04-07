@@ -25,6 +25,7 @@ from .constants import (
 )
 
 
+# Handle add bookmark.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_bookmark(request):
@@ -94,6 +95,7 @@ def add_bookmark(request):
     )
 
 
+# Handle remove bookmark.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_bookmark(request):
@@ -140,6 +142,7 @@ def remove_bookmark(request):
     )
 
 
+# Handle list bookmarks.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_bookmarks(request):
@@ -245,6 +248,7 @@ def list_bookmarks(request):
     return Response(data, status=status.HTTP_200_OK)
 
 
+# Handle list followed posts.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_followed_posts(request):

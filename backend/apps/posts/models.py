@@ -51,6 +51,20 @@ class Post(models.Model):
 
 	class Meta:
 		db_table = 'posts'
+		indexes = [
+			models.Index(
+				fields=['team', 'type', 'delete_flag', 'created_at'],
+				name='pst_team_type_del_created_idx',
+			),
+			models.Index(
+				fields=['team', 'user', 'created_at'],
+				name='posts_team_user_created_idx',
+			),
+			models.Index(
+				fields=['parent', 'type', 'delete_flag', 'created_at'],
+				name='pst_parent_typ_del_created_ix',
+			),
+		]
 
 	def __str__(self):
 		return f'Post #{self.id}'
@@ -88,6 +102,12 @@ class PostFollow(models.Model):
 
 	class Meta:
 		db_table = 'post_follows'
+		indexes = [
+			models.Index(
+				fields=['user', 'created_at'],
+				name='post_follows_user_created_idx',
+			),
+		]
 		constraints = [
 			models.UniqueConstraint(fields=['post', 'user'], name='uniq_post_follow_user'),
 		]

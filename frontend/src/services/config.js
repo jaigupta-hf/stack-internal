@@ -19,6 +19,29 @@ const asList = (payload) => {
   return [];
 };
 
+const asPaginated = (payload) => {
+  if (Array.isArray(payload)) {
+    return { items: payload, pagination: null };
+  }
+  return {
+    items: Array.isArray(payload?.items) ? payload.items : [],
+    pagination: payload?.pagination ?? null,
+  };
+};
+
+const withPaginationParams = (params = {}, options = {}) => {
+  const nextParams = { ...params };
+
+  if (options?.page != null) {
+    nextParams.page = options.page;
+  }
+  if (options?.pageSize != null) {
+    nextParams.page_size = options.pageSize;
+  }
+
+  return nextParams;
+};
+
 let isRedirectingToLogin = false;
 
 // Token management
@@ -74,4 +97,4 @@ api.interceptors.response.use(
   }
 );
 
-export { api, asList };
+export { api, asList, asPaginated, withPaginationParams };

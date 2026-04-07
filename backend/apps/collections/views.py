@@ -25,6 +25,7 @@ from .serializers import (
     CreateCollectionSerializer,
 )
 
+# Create a new collection in a team (admin-only) and return summary metadata.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_collection(request):
@@ -71,6 +72,7 @@ def create_collection(request):
     return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# List paginated collections for a team, including creator and post-count metadata.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_collections(request):
@@ -116,6 +118,7 @@ def list_collections(request):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Return full collection details, increment views, and include posts/comments with user-specific state.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def collection_detail(request, collection_id):
@@ -215,6 +218,7 @@ def collection_detail(request, collection_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Add the current user's upvote for a collection and update its aggregate vote total.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def upvote_collection(request, collection_id):
@@ -253,6 +257,7 @@ def upvote_collection(request, collection_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Remove the current user's upvote for a collection and update its aggregate vote total.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_collection_upvote(request, collection_id):
@@ -290,6 +295,7 @@ def remove_collection_upvote(request, collection_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Create a comment on a collection and return the new comment payload for immediate display.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_collection_comment(request, collection_id):
@@ -335,6 +341,7 @@ def create_collection_comment(request, collection_id):
     return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Search eligible team posts by title and mark which results are already in the collection.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_posts_for_collection(request, collection_id):
@@ -386,6 +393,7 @@ def search_posts_for_collection(request, collection_id):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Append an eligible post to the collection with the next sequence number (admin-only).
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_post_to_collection(request, collection_id):

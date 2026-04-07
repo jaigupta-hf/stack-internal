@@ -65,6 +65,7 @@ from .views_bookmarks import (
 )
 
 
+# Handle create question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_question(request):
@@ -115,6 +116,7 @@ def create_question(request):
 	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Handle create answer.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_answer(request, question_id):
@@ -195,6 +197,7 @@ def create_answer(request, question_id):
 	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Handle update answer.
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def update_answer(request, answer_id):
@@ -241,6 +244,7 @@ def update_answer(request, answer_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle delete answer.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def delete_answer(request, answer_id):
@@ -277,6 +281,7 @@ def delete_answer(request, answer_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle undelete answer.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def undelete_answer(request, answer_id):
@@ -310,6 +315,7 @@ def undelete_answer(request, answer_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle approve answer.
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def approve_answer(request, question_id):

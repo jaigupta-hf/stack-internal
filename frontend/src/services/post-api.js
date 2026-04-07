@@ -1,4 +1,4 @@
-import { api, asList } from './config';
+import { api, asList, withPaginationParams } from './config';
 
 export const postService = {
   async createQuestion(payload) {
@@ -16,16 +16,21 @@ export const postService = {
     return response.data;
   },
 
-  async listQuestions(teamId) {
+  async listQuestionsPage(teamId, options = {}) {
     const response = await api.get('/posts/questions/list/', {
-      params: { team_id: teamId },
+      params: withPaginationParams({ team_id: teamId }, options),
     });
-    return asList(response.data);
+    return response.data;
   },
 
-  async listArticles(teamId) {
+  async listQuestions(teamId, options = {}) {
+    const payload = await postService.listQuestionsPage(teamId, options);
+    return asList(payload);
+  },
+
+  async listArticles(teamId, options = {}) {
     const response = await api.get('/posts/articles/list/', {
-      params: { team_id: teamId },
+      params: withPaginationParams({ team_id: teamId }, options),
     });
     return response.data;
   },
@@ -168,8 +173,8 @@ export const postService = {
     return response.data;
   },
 
-  async listBookmarks(teamId, userId = null) {
-    const params = { team_id: teamId };
+  async listBookmarks(teamId, userId = null, options = {}) {
+    const params = withPaginationParams({ team_id: teamId }, options);
     if (userId) {
       params.user_id = userId;
     }
@@ -180,8 +185,8 @@ export const postService = {
     return response.data;
   },
 
-  async listFollowedPosts(teamId, userId = null) {
-    const params = { team_id: teamId };
+  async listFollowedPosts(teamId, userId = null, options = {}) {
+    const params = withPaginationParams({ team_id: teamId }, options);
     if (userId) {
       params.user_id = userId;
     }

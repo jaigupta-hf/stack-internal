@@ -1,6 +1,7 @@
 from math import ceil
 
 
+# Helper to to positive int.
 def _to_positive_int(value, default):
     try:
         parsed = int(value)
@@ -9,6 +10,7 @@ def _to_positive_int(value, default):
     return parsed if parsed > 0 else default
 
 
+# Handle parse pagination params.
 def parse_pagination_params(request, *, default_page_size=20, max_page_size=100):
     page = _to_positive_int(request.query_params.get('page'), 1)
     page_size = _to_positive_int(request.query_params.get('page_size'), default_page_size)
@@ -16,6 +18,7 @@ def parse_pagination_params(request, *, default_page_size=20, max_page_size=100)
     return page, page_size
 
 
+# Helper to build pagination.
 def _build_pagination(page, page_size, total_items):
     total_pages = ceil(total_items / page_size) if total_items else 0
     return {
@@ -28,6 +31,7 @@ def _build_pagination(page, page_size, total_items):
     }
 
 
+# Handle paginate queryset.
 def paginate_queryset(queryset, *, page, page_size):
     total_items = queryset.count()
     offset = (page - 1) * page_size

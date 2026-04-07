@@ -1,17 +1,53 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { teamService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import useFilteredList from '../../hooks/useFilteredList';
 import useTeamResource from '../../hooks/useTeamResource';
 
+const DEFAULT_USERS_PAGE_SIZE = 24;
+const USERS_PAGE_SIZE_OPTIONS = [12, 24, 48];
+
+const getVisiblePageNumbers = (pagination, windowSize = 5) => {
+  const totalPages = Math.max(pagination?.total_pages || 1, 1);
+  const currentPage = Math.min(Math.max(pagination?.page || 1, 1), totalPages);
+  const halfWindow = Math.floor(windowSize / 2);
+
+  let startPage = Math.max(currentPage - halfWindow, 1);
+  let endPage = Math.min(startPage + windowSize - 1, totalPages);
+
+  if (endPage - startPage + 1 < windowSize) {
+    startPage = Math.max(endPage - windowSize + 1, 1);
+  }
+
+  const pages = [];
+  for (let page = startPage; page <= endPage; page += 1) {
+    pages.push(page);
+  }
+
+  return pages;
+};
+
 function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUserId = null }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuOpenUserId, setMenuOpenUserId] = useState(null);
   const [actionLoading, setActionLoading] = useState('');
-  const loadUsers = useCallback(async () => {
-    const data = await teamService.listTeamUsers(team?.id);
-    return Array.isArray(data) ? data : [];
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPageSize, setUsersPageSize] = useState(DEFAULT_USERS_PAGE_SIZE);
+  const [usersPagination, setUsersPagination] = useState(null);
+
+  useEffect(() => {
+    setUsersPage(1);
   }, [team?.id]);
+
+  const loadUsers = useCallback(async () => {
+    const payload = await teamService.listTeamUsersPage(team?.id, {
+      page: usersPage,
+      pageSize: usersPageSize,
+    });
+
+    setUsersPagination(payload?.pagination ?? null);
+    return Array.isArray(payload?.items) ? payload.items : [];
+  }, [team?.id, usersPage, usersPageSize]);
 
   const {
     data: users,
@@ -24,8 +60,41 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
     initialData: [],
     loadResource: loadUsers,
     fallbackErrorMessage: 'Failed to load users.',
-    dependencies: [team?.id],
+    dependencies: [team?.id, usersPage, usersPageSize],
   });
+
+  const handlePreviousPage = () => {
+    setUsersPage((prev) => Math.max(prev - 1, 1));
+  };
+
+  const handleNextPage = () => {
+    setUsersPage((prev) => {
+      if (usersPagination && !usersPagination.has_next) {
+        return prev;
+      }
+      return prev + 1;
+    });
+  };
+
+  const handleGoToPage = (page) => {
+    if (!usersPagination) {
+      return;
+    }
+
+    const maxPage = Math.max(usersPagination.total_pages || 1, 1);
+    const nextPage = Math.min(Math.max(page, 1), maxPage);
+    setUsersPage(nextPage);
+  };
+
+  const handlePageSizeChange = (value) => {
+    const nextPageSize = Number(value);
+    if (!Number.isFinite(nextPageSize) || nextPageSize <= 0) {
+      return;
+    }
+
+    setUsersPageSize(nextPageSize);
+    setUsersPage(1);
+  };
 
   const visibleUsers = useFilteredList(users, (source) => {
     const query = searchQuery.trim().toLowerCase();
@@ -186,6 +255,63 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
             </article>
           ))}
         </div>
+
+        {!loading && !error && usersPagination ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+            <p className="text-xs text-slate-300">
+              Page {usersPagination.page} of {Math.max(usersPagination.total_pages || 1, 1)}
+              {' '}•{' '}Total {usersPagination.total_items ?? users.length} users
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-slate-300">
+                <span>Per page</span>
+                <select
+                  value={usersPageSize}
+                  onChange={(e) => handlePageSizeChange(e.target.value)}
+                  className="rounded-full border border-white/15 bg-white/10 px-2 py-1 text-xs text-slate-100 outline-none"
+                >
+                  {USERS_PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={`users-page-size-${option}`} value={option} className="bg-[#111821] text-slate-100">
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={handlePreviousPage}
+                disabled={!usersPagination.has_previous}
+                className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={handleNextPage}
+                disabled={!usersPagination.has_next}
+                className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Next
+              </button>
+
+              {getVisiblePageNumbers(usersPagination).map((page) => (
+                <button
+                  key={`users-page-${page}`}
+                  type="button"
+                  onClick={() => handleGoToPage(page)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                    page === usersPagination.page
+                      ? 'border-cyan-300/0 bg-cyan-300/20 text-cyan-100'
+                      : 'border-white/15 bg-white/10 text-slate-200 hover:bg-white/20'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </AsyncStateView>
     </div>
   );

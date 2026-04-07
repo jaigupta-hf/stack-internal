@@ -18,6 +18,9 @@ class Collection(models.Model):
 
     class Meta:
         db_table = 'collections'
+        indexes = [
+            models.Index(fields=['team', '-created_at'], name='idx_coll_team_created'),
+        ]
 
     def __str__(self):
         return self.title

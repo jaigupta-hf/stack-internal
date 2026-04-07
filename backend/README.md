@@ -62,6 +62,7 @@ backend/
 ## API Documentation
 
 - Full endpoint reference: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
+- Frontend integration contract: [docs/FRONTEND_BACKEND_INTEGRATION.md](docs/FRONTEND_BACKEND_INTEGRATION.md)
 - Root route mapping: [config/urls.py](config/urls.py)
 
 ## App Context Files
@@ -124,3 +125,10 @@ Configuration is loaded from `backend/.env`.
 - Prefer additive API changes and keep response contracts stable where possible.
 - For new team-scoped endpoints, enforce membership before business logic.
 - If an endpoint mutates multiple related models, wrap updates in transactions.
+
+## Indexing And Performance Conventions
+
+- Define intended indexes in model `Meta.indexes` so query intent stays visible in schema code.
+- In this repository's legacy migration setup, apply index rollout with DB-only `RunSQL` migrations (using `IF NOT EXISTS`) until full initial migrations are baselined.
+- Keep explicit index names at 30 characters or fewer to satisfy Django model checks.
+- Prefer composite indexes that match real query patterns (`WHERE` + `ORDER BY`) over broad speculative indexing.
