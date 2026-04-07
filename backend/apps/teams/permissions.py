@@ -1,4 +1,5 @@
 from rest_framework import status
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from .models import TeamUser
@@ -49,3 +50,36 @@ def ensure_team_admin(*, membership, error_message='Only team admins can manage 
         return None
 
     return Response({'error': error_message}, status=status.HTTP_403_FORBIDDEN)
+
+
+class IsTeamMemberFromRequest(BasePermission):
+    """Checks team membership using a team id from query params or request body."""
+
+    message = 'You are not a member of this team'
+
+    def has_permission(self, request, view):
+        location = getattr(view, 'team_id_location', 'query_params')
+        param_name = getattr(view, 'team_id_param', 'team_id')
+
+        source = request.query_params if location == 'query_params' else request.data
+        raw_team_id = source.get(param_name)
+
+        # Defer required/format validation to the view serializer logic.
+        if raw_team_id in (None, ''):
+            return True
+
+        try:
+            team_id = int(raw_team_id)
+        except (TypeError, ValueError):
+            return True
+
+        return TeamUser.objects.filter(team_id=team_id, user=request.user).exists()
+
+
+class IsTeamMemberForNotification(BasePermission):
+    """Object-level permission for Notification resources via related post team."""
+
+    message = 'You are not a member of this team'
+
+    def has_object_permission(self, request, view, obj):
+        return TeamUser.objects.filter(team=obj.post.team, user=request.user).exists()
