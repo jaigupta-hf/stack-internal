@@ -36,20 +36,67 @@ from .views_common import (
 )
 
 
+# Load a question, enforce team membership, and optionally include question.user via select_related.
+def _get_question_membership_or_response(*, question_id, user, select_related_user=False):
+    related_fields = ['team']
+    if select_related_user:
+        related_fields.append('user')
+
+    try:
+        question = Post.objects.select_related(*related_fields).get(id=question_id, type=0)
+    except Post.DoesNotExist:
+        return None, None, Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    membership, membership_error = ensure_team_membership_and_get(team=question.team, user=user)
+    if membership_error:
+        return None, None, membership_error
+
+    return question, membership, None
+
+
+# Serialize all mention notifications for a question in display order.
+def _build_question_mentions_payload(question):
+    mentions = (
+        Notification.objects.filter(post=question, reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
+        .select_related('user', 'triggered_by')
+        .order_by('created_at')
+    )
+    return [
+        {
+            'id': mention.id,
+            'user_id': mention.user_id,
+            'user_name': mention.user.name,
+            'mentioned_by': mention.triggered_by_id,
+            'mentioned_by_name': mention.triggered_by.name,
+            'created_at': mention.created_at,
+        }
+        for mention in mentions
+    ]
+
+
+# Build a consistent follow/unfollow response including current follower count.
+def _question_follow_state_response(*, question, is_following):
+    followers_count = PostFollow.objects.filter(post=question).count()
+    output = QuestionFollowStateOutputSerializer(
+        data={
+            'question_id': question.id,
+            'is_following': is_following,
+            'followers_count': followers_count,
+        }
+    )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
+
+
 # Handle offer question bounty.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def offer_question_bounty(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership, membership_error = ensure_team_membership_and_get(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, membership, context_error = _get_question_membership_or_response(question_id=question_id, user=user)
+    if context_error:
+        return context_error
 
     if question.user_id != user.id:
         return Response({'error': 'Only the question author can offer bounty'}, status=status.HTTP_403_FORBIDDEN)
@@ -111,14 +158,13 @@ def offer_question_bounty(request, question_id):
 def award_question_bounty(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team', 'user').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership, membership_error = ensure_team_membership_and_get(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, membership, context_error = _get_question_membership_or_response(
+        question_id=question_id,
+        user=user,
+        select_related_user=True,
+    )
+    if context_error:
+        return context_error
 
     if question.user_id != user.id:
         return Response({'error': 'Only the question author can award bounty'}, status=status.HTTP_403_FORBIDDEN)
@@ -199,28 +245,13 @@ def award_question_bounty(request, question_id):
 def follow_question(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, _, context_error = _get_question_membership_or_response(question_id=question_id, user=user)
+    if context_error:
+        return context_error
 
     PostFollow.objects.get_or_create(post=question, user=user)
 
-    followers_count = PostFollow.objects.filter(post=question).count()
-
-    output = QuestionFollowStateOutputSerializer(
-        data={
-            'question_id': question.id,
-            'is_following': True,
-            'followers_count': followers_count,
-        }
-    )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
+    return _question_follow_state_response(question=question, is_following=True)
 
 
 # Handle unfollow question.
@@ -229,28 +260,13 @@ def follow_question(request, question_id):
 def unfollow_question(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, _, context_error = _get_question_membership_or_response(question_id=question_id, user=user)
+    if context_error:
+        return context_error
 
     PostFollow.objects.filter(post=question, user=user).delete()
 
-    followers_count = PostFollow.objects.filter(post=question).count()
-
-    output = QuestionFollowStateOutputSerializer(
-        data={
-            'question_id': question.id,
-            'is_following': False,
-            'followers_count': followers_count,
-        }
-    )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
+    return _question_follow_state_response(question=question, is_following=False)
 
 
 # Handle add question mentions.
@@ -259,14 +275,9 @@ def unfollow_question(request, question_id):
 def add_question_mentions(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, _, context_error = _get_question_membership_or_response(question_id=question_id, user=user)
+    if context_error:
+        return context_error
 
     mention_input_serializer = QuestionMentionInputSerializer(data=request.data)
     if not mention_input_serializer.is_valid():
@@ -304,23 +315,7 @@ def add_question_mentions(request, question_id):
             mention.triggered_by = user
             mention.save(update_fields=['triggered_by'])
 
-    mentions = (
-        Notification.objects.filter(post=question, reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
-        .select_related('user', 'triggered_by')
-        .order_by('created_at')
-    )
-
-    payload = [
-        {
-            'id': mention.id,
-            'user_id': mention.user_id,
-            'user_name': mention.user.name,
-            'mentioned_by': mention.triggered_by_id,
-            'mentioned_by_name': mention.triggered_by.name,
-            'created_at': mention.created_at,
-        }
-        for mention in mentions
-    ]
+    payload = _build_question_mentions_payload(question)
 
     output = QuestionMentionsCreatedOutputSerializer(
         data={
@@ -338,14 +333,9 @@ def add_question_mentions(request, question_id):
 def remove_question_mention(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, _, context_error = _get_question_membership_or_response(question_id=question_id, user=user)
+    if context_error:
+        return context_error
 
     if question.user_id != user.id:
         return Response({'error': 'Only the question author can remove mentions'}, status=status.HTTP_403_FORBIDDEN)
@@ -364,23 +354,7 @@ def remove_question_mention(request, question_id):
         reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
     ).delete()
 
-    mentions = (
-        Notification.objects.filter(post=question, reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
-        .select_related('user', 'triggered_by')
-        .order_by('created_at')
-    )
-
-    payload = [
-        {
-            'id': mention.id,
-            'user_id': mention.user_id,
-            'user_name': mention.user.name,
-            'mentioned_by': mention.triggered_by_id,
-            'mentioned_by_name': mention.triggered_by.name,
-            'created_at': mention.created_at,
-        }
-        for mention in mentions
-    ]
+    payload = _build_question_mentions_payload(question)
 
     output = QuestionMentionsRemovedOutputSerializer(
         data={

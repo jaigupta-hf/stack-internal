@@ -248,20 +248,71 @@ def search_global_titles(request):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Load a question by id and enforce team membership for the requesting user.
+def _get_accessible_question_or_response(*, question_id, user, require_not_deleted=False):
+    lookup = {
+        'id': question_id,
+        'type': 0,
+    }
+    if require_not_deleted:
+        lookup['delete_flag'] = False
+
+    try:
+        question = Post.objects.select_related('team').get(**lookup)
+    except Post.DoesNotExist:
+        return None, Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    membership_error = ensure_team_membership(team=question.team, user=user)
+    if membership_error:
+        return None, membership_error
+
+    return question, None
+
+
+# Build a consistent response payload for question close/reopen state changes.
+def _question_close_state_response(*, question, is_closed, closed_reason, closed_at, closed_by, duplicate_post_id, duplicate_post_title):
+    output = QuestionCloseOutputSerializer(
+        data={
+            'id': question.id,
+            'is_closed': is_closed,
+            'closed_reason': closed_reason,
+            'closed_at': closed_at,
+            'closed_by': closed_by,
+            'closed_by_username': _display_name(question.team_id, closed_by) if closed_by else None,
+            'duplicate_post_id': duplicate_post_id,
+            'duplicate_post_title': duplicate_post_title,
+        }
+    )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
+
+
+# Build a consistent response payload for question delete/undelete state changes.
+def _question_delete_state_response(*, question, is_deleted):
+    output = PostDeleteStateOutputSerializer(
+        data={
+            'id': question.id,
+            'delete_flag': is_deleted,
+            'is_deleted': is_deleted,
+        }
+    )
+    output.is_valid(raise_exception=True)
+    return Response(output.data, status=status.HTTP_200_OK)
+
+
 # Handle close question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def close_question(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0, delete_flag=False)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, question_error = _get_accessible_question_or_response(
+        question_id=question_id,
+        user=user,
+        require_not_deleted=True,
+    )
+    if question_error:
+        return question_error
 
     if question.closed_reason:
         return Response({'error': 'Question is already closed.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -311,20 +362,15 @@ def close_question(request, question_id):
         reason=NOTIFICATION_REASON_QUESTION_CLOSED,
     )
 
-    output = QuestionCloseOutputSerializer(
-        data={
-            'id': question.id,
-            'is_closed': True,
-            'closed_reason': reason_value,
-            'closed_at': closed_at,
-            'closed_by': user.id,
-            'closed_by_username': _display_name(question.team_id, user.id),
-            'duplicate_post_id': duplicate_post_id_value,
-            'duplicate_post_title': duplicate_post_title_value,
-        }
+    return _question_close_state_response(
+        question=question,
+        is_closed=True,
+        closed_reason=reason_value,
+        closed_at=closed_at,
+        closed_by=user.id,
+        duplicate_post_id=duplicate_post_id_value,
+        duplicate_post_title=duplicate_post_title_value,
     )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
 
 
 # Handle reopen question.
@@ -333,14 +379,13 @@ def close_question(request, question_id):
 def reopen_question(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0, delete_flag=False)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, question_error = _get_accessible_question_or_response(
+        question_id=question_id,
+        user=user,
+        require_not_deleted=True,
+    )
+    if question_error:
+        return question_error
 
     if not question.closed_reason:
         return Response({'error': 'Question is not closed.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -352,20 +397,15 @@ def reopen_question(request, question_id):
         parent=None,
     )
 
-    output = QuestionCloseOutputSerializer(
-        data={
-            'id': question.id,
-            'is_closed': False,
-            'closed_reason': '',
-            'closed_at': None,
-            'closed_by': None,
-            'closed_by_username': None,
-            'duplicate_post_id': None,
-            'duplicate_post_title': None,
-        }
+    return _question_close_state_response(
+        question=question,
+        is_closed=False,
+        closed_reason='',
+        closed_at=None,
+        closed_by=None,
+        duplicate_post_id=None,
+        duplicate_post_title=None,
     )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
 
 
 # Handle delete question.
@@ -374,14 +414,12 @@ def reopen_question(request, question_id):
 def delete_question(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, question_error = _get_accessible_question_or_response(
+        question_id=question_id,
+        user=user,
+    )
+    if question_error:
+        return question_error
 
     if not question.delete_flag:
         Post.objects.filter(id=question.id).update(delete_flag=True)
@@ -392,15 +430,7 @@ def delete_question(request, question_id):
             reason=NOTIFICATION_REASON_QUESTION_DELETED,
         )
 
-    output = PostDeleteStateOutputSerializer(
-        data={
-            'id': question.id,
-            'delete_flag': True,
-            'is_deleted': True,
-        }
-    )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
+    return _question_delete_state_response(question=question, is_deleted=True)
 
 
 # Handle undelete question.
@@ -409,27 +439,17 @@ def delete_question(request, question_id):
 def undelete_question(request, question_id):
     user = request.user
 
-    try:
-        question = Post.objects.select_related('team').get(id=question_id, type=0)
-    except Post.DoesNotExist:
-        return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=question.team, user=user)
-    if membership_error:
-        return membership_error
+    question, question_error = _get_accessible_question_or_response(
+        question_id=question_id,
+        user=user,
+    )
+    if question_error:
+        return question_error
 
     if question.delete_flag:
         Post.objects.filter(id=question.id).update(delete_flag=False)
 
-    output = PostDeleteStateOutputSerializer(
-        data={
-            'id': question.id,
-            'delete_flag': False,
-            'is_deleted': False,
-        }
-    )
-    output.is_valid(raise_exception=True)
-    return Response(output.data, status=status.HTTP_200_OK)
+    return _question_delete_state_response(question=question, is_deleted=False)
 
 
 # Handle question detail.
