@@ -29,7 +29,7 @@ export const teamService = {
   },
 
   async listTeamUsers(teamId, options = {}) {
-    const payload = await this.listTeamUsersPage(teamId, options);
+    const payload = await teamService.listTeamUsersPage(teamId, options);
     return asList(payload);
   },
 

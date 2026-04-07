@@ -14,7 +14,7 @@ export const collectionService = {
   },
 
   async listCollections(teamId, options = {}) {
-    const payload = await this.listCollectionsPage(teamId, options);
+    const payload = await collectionService.listCollectionsPage(teamId, options);
     return asList(payload);
   },
 

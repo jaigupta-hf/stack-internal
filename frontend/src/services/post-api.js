@@ -24,7 +24,7 @@ export const postService = {
   },
 
   async listQuestions(teamId, options = {}) {
-    const payload = await this.listQuestionsPage(teamId, options);
+    const payload = await postService.listQuestionsPage(teamId, options);
     return asList(payload);
   },
 
