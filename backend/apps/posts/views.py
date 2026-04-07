@@ -20,8 +20,20 @@ from .serializers import (
 )
 from tags.api import sync_post_tags, sync_user_tags_for_post
 from notifications.api import create_notification
+from notifications.constants import (
+	NOTIFICATION_REASON_ANSWER_EDITED,
+	NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
+	NOTIFICATION_REASON_APPROVED_ANSWER_ON_FOLLOWED_POST,
+	NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
+	NOTIFICATION_REASON_YOUR_ANSWER_WAS_APPROVED,
+)
 from reputation.api import apply_reputation_change
-from reputation.constants import ANSWER_ACCEPT_GAIN, ANSWER_UNACCEPT_LOSS
+from reputation.constants import (
+	ANSWER_ACCEPT_GAIN,
+	ANSWER_UNACCEPT_LOSS,
+	REPUTATION_REASON_ACCEPT,
+	REPUTATION_REASON_UNACCEPT,
+)
 from .views_common import (
 	_first_serializer_error,
 	_notify_question_followers,
@@ -151,12 +163,12 @@ def create_answer(request, question_id):
 		post=question,
 		user=question.user,
 		triggered_by=user,
-		reason='answer_posted_on_your_question',
+		reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
 	)
 	_notify_question_followers(
 		question=question,
 		triggered_by=user,
-		reason='new_answer_on_followed_post',
+		reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
 	)
 
 	output = CreateAnswerOutputSerializer(
@@ -209,7 +221,7 @@ def update_answer(request, answer_id):
 		post=answer,
 		user=answer.user,
 		triggered_by=user,
-		reason='answer_edited',
+		reason=NOTIFICATION_REASON_ANSWER_EDITED,
 	)
 
 	output = UpdateAnswerOutputSerializer(
@@ -339,7 +351,7 @@ def approve_answer(request, question_id):
 					triggered_by=user,
 					post=previous_approved_answer,
 					points=ANSWER_UNACCEPT_LOSS,
-					reason='unaccept',
+					reason=REPUTATION_REASON_UNACCEPT,
 				)
 
 		output = ApproveAnswerOutputSerializer(
@@ -375,7 +387,7 @@ def approve_answer(request, question_id):
 				triggered_by=user,
 				post=previous_approved_answer,
 				points=ANSWER_UNACCEPT_LOSS,
-				reason='unaccept',
+				reason=REPUTATION_REASON_UNACCEPT,
 			)
 
 		if not already_approved and answer.user_id != user.id:
@@ -385,19 +397,19 @@ def approve_answer(request, question_id):
 				triggered_by=user,
 				post=answer,
 				points=ANSWER_ACCEPT_GAIN,
-				reason='accept',
+				reason=REPUTATION_REASON_ACCEPT,
 			)
 
 	create_notification(
 		post=answer,
 		user=answer.user,
 		triggered_by=user,
-		reason='your_answer_was_approved',
+		reason=NOTIFICATION_REASON_YOUR_ANSWER_WAS_APPROVED,
 	)
 	_notify_question_followers(
 		question=question,
 		triggered_by=user,
-		reason='approved_answer_on_followed_post',
+		reason=NOTIFICATION_REASON_APPROVED_ANSWER_ON_FOLLOWED_POST,
 	)
 
 	output = ApproveAnswerOutputSerializer(

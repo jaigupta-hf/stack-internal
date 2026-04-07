@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from apps.pagination import parse_pagination_params, paginate_queryset
 
 from teams.permissions import ensure_team_membership
 
@@ -20,7 +21,13 @@ from .serializers import (
     CreateArticleSerializer,
 )
 from tags.api import serialize_post_tags, sync_post_tags, sync_user_tags_for_post, tag_prefetch
-from .views_common import ARTICLE_TYPE_TO_LABEL, _display_name, _first_serializer_error
+from .constants import (
+    ARTICLE_TYPE_TO_LABEL,
+    ARTICLE_TYPE_VALUES,
+    DEFAULT_ARTICLE_LIST_PAGE_SIZE,
+    MAX_ARTICLE_LIST_PAGE_SIZE,
+)
+from .views_common import _first_serializer_error
 
 
 @api_view(['POST'])
@@ -93,12 +100,19 @@ def list_articles(request):
     if membership_error:
         return membership_error
 
+    page, page_size = parse_pagination_params(
+        request,
+        default_page_size=DEFAULT_ARTICLE_LIST_PAGE_SIZE,
+        max_page_size=MAX_ARTICLE_LIST_PAGE_SIZE,
+    )
+
     articles = (
-        Post.objects.filter(team_id=team_id, type__in=(20, 21, 22, 23), delete_flag=False)
+        Post.objects.filter(team_id=team_id, type__in=ARTICLE_TYPE_VALUES, delete_flag=False)
         .select_related('user')
         .prefetch_related(tag_prefetch('article_tag_posts'))
         .order_by('-created_at')
     )
+    articles, _ = paginate_queryset(articles, page=page, page_size=page_size)
 
     article_ids = [article.id for article in articles]
     post_vote_map = {
@@ -121,7 +135,7 @@ def list_articles(request):
             'title': article.title,
             'body': article.body,
             'tags': serialize_post_tags(article, 'article_tag_posts'),
-            'user_name': _display_name(article.team_id, article.user_id),
+            'user_name': article.user.name,
             'created_at': article.created_at,
             'views_count': article.views_count,
             'vote_count': article.vote_count,
@@ -147,7 +161,7 @@ def article_detail(request, article_id):
         article = (
             Post.objects.select_related('user')
             .prefetch_related(tag_prefetch('article_tag_posts'))
-            .get(id=article_id, type__in=(20, 21, 22, 23), delete_flag=False)
+            .get(id=article_id, type__in=ARTICLE_TYPE_VALUES, delete_flag=False)
         )
     except Post.DoesNotExist:
         return Response({'error': 'Article not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -180,7 +194,7 @@ def article_detail(request, article_id):
         article = (
             Post.objects.select_related('user')
             .prefetch_related(tag_prefetch('article_tag_posts'))
-            .get(id=article_id, type__in=(20, 21, 22, 23), delete_flag=False)
+            .get(id=article_id, type__in=ARTICLE_TYPE_VALUES, delete_flag=False)
         )
 
         response_payload = {
@@ -191,7 +205,7 @@ def article_detail(request, article_id):
             'body': article.body,
             'tags': serialize_post_tags(article, 'article_tag_posts'),
             'user': article.user_id,
-            'user_name': _display_name(article.team_id, article.user_id),
+            'user_name': article.user.name,
             'created_at': article.created_at,
             'modified_at': article.modified_at,
             'views_count': article.views_count,
@@ -234,7 +248,7 @@ def article_detail(request, article_id):
             'created_at': comment.created_at,
             'modified_at': comment.modified_at,
             'user': comment.user_id,
-            'user_name': _display_name(article.team_id, comment.user_id),
+            'user_name': comment.user.name,
             'vote_count': comment.vote_count,
             'parent_comment': comment.parent_comment_id,
             'current_user_vote': comment_vote_map.get(comment.id, 0),
@@ -253,7 +267,7 @@ def article_detail(request, article_id):
         'body': article.body,
         'tags': serialize_post_tags(article, 'article_tag_posts'),
         'user': article.user_id,
-        'user_name': _display_name(article.team_id, article.user_id),
+        'user_name': article.user.name,
         'created_at': article.created_at,
         'modified_at': article.modified_at,
         'views_count': article.views_count,

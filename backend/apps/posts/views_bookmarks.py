@@ -1,9 +1,11 @@
 from django.db.models import F
+from django.db.models import Q
 from django.db.models.functions import Coalesce, Greatest
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from apps.pagination import parse_pagination_params, paginate_queryset
 
 from teams.permissions import ensure_team_membership, get_team_membership
 from users.models import User
@@ -13,7 +15,14 @@ from apps.collections.models import Collection
 from tags.api import serialize_post_tags, tag_prefetch
 
 from .models import Bookmark, Post, PostFollow
-from .views_common import ARTICLE_TYPE_TO_LABEL, _display_name
+from .constants import (
+    DEFAULT_BOOKMARK_LIST_PAGE_SIZE,
+    DEFAULT_FOLLOWED_POSTS_PAGE_SIZE,
+    MAX_BOOKMARK_LIST_PAGE_SIZE,
+    MAX_FOLLOWED_POSTS_PAGE_SIZE,
+    POST_TYPE_QUESTION,
+    POST_TYPE_TO_LABEL,
+)
 
 
 @api_view(['POST'])
@@ -140,6 +149,11 @@ def list_bookmarks(request):
     if not team_id:
         return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+    try:
+        team_id = int(team_id)
+    except (TypeError, ValueError):
+        return Response({'error': 'team_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
     membership_error = ensure_team_membership(team_id=team_id, user=user)
     if membership_error:
         return membership_error
@@ -155,11 +169,19 @@ def list_bookmarks(request):
         if get_team_membership(team_id=team_id, user=target_user) is None:
             return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
+    page, page_size = parse_pagination_params(
+        request,
+        default_page_size=DEFAULT_BOOKMARK_LIST_PAGE_SIZE,
+        max_page_size=MAX_BOOKMARK_LIST_PAGE_SIZE,
+    )
+
     bookmarks = (
         Bookmark.objects.filter(user=target_user)
+        .filter(Q(post__team_id=team_id) | Q(collection__team_id=team_id))
         .select_related('post__user', 'collection__user')
         .order_by('-id')
     )
+    bookmarks, _ = paginate_queryset(bookmarks, page=page, page_size=page_size)
 
     post_ids = [item.post_id for item in bookmarks]
     posts_by_id = {
@@ -171,7 +193,7 @@ def list_bookmarks(request):
     for item in bookmarks:
         if item.post_id:
             post = posts_by_id.get(item.post_id, item.post)
-            if not post or str(post.team_id) != str(team_id):
+            if not post:
                 continue
 
             data.append(
@@ -182,10 +204,10 @@ def list_bookmarks(request):
                     'collection_id': None,
                     'delete_flag': post.delete_flag,
                     'post_type': post.type,
-                    'post_type_label': ARTICLE_TYPE_TO_LABEL.get(post.type, 'Question' if post.type == 0 else 'Post'),
+                    'post_type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
                     'title': post.title,
                     'body': post.body,
-                    'user_name': _display_name(post.team_id, post.user_id),
+                    'user_name': post.user.name,
                     'created_at': post.created_at,
                     'views_count': post.views_count,
                     'vote_count': post.vote_count,
@@ -197,7 +219,7 @@ def list_bookmarks(request):
             continue
 
         collection = item.collection
-        if not collection or str(collection.team_id) != str(team_id):
+        if not collection:
             continue
 
         data.append(
@@ -210,7 +232,7 @@ def list_bookmarks(request):
                 'post_type_label': 'Collection',
                 'title': collection.title,
                 'body': collection.description,
-                'user_name': _display_name(collection.team_id, collection.user_id),
+                'user_name': collection.user.name,
                 'created_at': collection.created_at,
                 'views_count': collection.views_count,
                 'vote_count': collection.vote_count,
@@ -232,6 +254,11 @@ def list_followed_posts(request):
     if not team_id:
         return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+    try:
+        team_id = int(team_id)
+    except (TypeError, ValueError):
+        return Response({'error': 'team_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
     membership_error = ensure_team_membership(team_id=team_id, user=user)
     if membership_error:
         return membership_error
@@ -247,11 +274,18 @@ def list_followed_posts(request):
         if get_team_membership(team_id=team_id, user=target_user) is None:
             return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
+    page, page_size = parse_pagination_params(
+        request,
+        default_page_size=DEFAULT_FOLLOWED_POSTS_PAGE_SIZE,
+        max_page_size=MAX_FOLLOWED_POSTS_PAGE_SIZE,
+    )
+
     follows = (
-        PostFollow.objects.filter(user=target_user, post__team_id=team_id, post__type=0)
+        PostFollow.objects.filter(user=target_user, post__team_id=team_id, post__type=POST_TYPE_QUESTION)
         .select_related('post__user')
         .order_by('-created_at')
     )
+    follows, _ = paginate_queryset(follows, page=page, page_size=page_size)
 
     post_ids = [item.post_id for item in follows]
     posts_by_id = {
@@ -273,7 +307,7 @@ def list_followed_posts(request):
                 'body': post.body,
                 'delete_flag': post.delete_flag,
                 'user_id': post.user_id,
-                'user_name': _display_name(post.team_id, post.user_id),
+                'user_name': post.user.name,
                 'created_at': post.created_at,
                 'views_count': post.views_count,
                 'vote_count': post.vote_count,

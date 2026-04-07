@@ -11,8 +11,10 @@ from teams.models import TeamUser
 from teams.permissions import ensure_team_membership, ensure_team_membership_and_get
 
 from notifications.models import Notification
+from notifications.constants import NOTIFICATION_REASON_MENTIONED_IN_QUESTION
 from reputation.api import apply_reputation_change
 from reputation.models import Bounty
+from reputation.constants import REPUTATION_REASON_BOUNTY_EARNED, REPUTATION_REASON_BOUNTY_OFFERED
 
 from .models import Post, PostFollow
 from .serializers import (
@@ -26,9 +28,9 @@ from .serializers import (
     QuestionMentionsRemovedOutputSerializer,
     RemoveQuestionMentionInputSerializer,
 )
+from .constants import BOUNTY_DURATION_DAYS, BOUNTY_MIN_REPUTATION_BUFFER
 from .views_common import (
     BOUNTY_AMOUNT,
-    _display_name,
     _first_serializer_error,
     _serialize_bounty,
 )
@@ -69,15 +71,15 @@ def offer_question_bounty(request, question_id):
     reason = bounty_input_serializer.validated_data['reason']
 
     current_reputation = membership.reputation if membership.reputation and membership.reputation > 0 else 1
-    if current_reputation < (BOUNTY_AMOUNT + 1):
+    if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
         return Response(
-            {'error': f'You need at least {BOUNTY_AMOUNT + 1} reputation to offer this bounty.'},
+            {'error': f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to offer this bounty.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     with transaction.atomic():
         start_time = timezone.now()
-        end_time = start_time + timedelta(days=7)
+        end_time = start_time + timedelta(days=BOUNTY_DURATION_DAYS)
         bounty = Bounty.objects.create(
             post=question,
             offered_by=user,
@@ -136,9 +138,9 @@ def award_question_bounty(request, question_id):
         return Response({'error': 'Answer not found for this question'}, status=status.HTTP_404_NOT_FOUND)
 
     current_reputation = membership.reputation if membership.reputation and membership.reputation > 0 else 1
-    if current_reputation < (BOUNTY_AMOUNT + 1):
+    if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
         return Response(
-            {'error': f'You need at least {BOUNTY_AMOUNT + 1} reputation to award this bounty.'},
+            {'error': f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to award this bounty.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -166,7 +168,7 @@ def award_question_bounty(request, question_id):
             triggered_by=user,
             post=question,
             points=-BOUNTY_AMOUNT,
-            reason='bounty offered',
+            reason=REPUTATION_REASON_BOUNTY_OFFERED,
         )
         apply_reputation_change(
             user=answer.user,
@@ -174,7 +176,7 @@ def award_question_bounty(request, question_id):
             triggered_by=user,
             post=answer,
             points=BOUNTY_AMOUNT,
-            reason='bounty earned',
+            reason=REPUTATION_REASON_BOUNTY_EARNED,
         )
 
     output = QuestionAwardBountyOutputSerializer(
@@ -288,7 +290,7 @@ def add_question_mentions(request, question_id):
         mention, created = Notification.objects.get_or_create(
             post=question,
             user_id=target_user_id,
-            reason='mentioned_in_question',
+            reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
             defaults={'triggered_by': user},
         )
         if created:
@@ -298,7 +300,7 @@ def add_question_mentions(request, question_id):
             mention.save(update_fields=['triggered_by'])
 
     mentions = (
-        Notification.objects.filter(post=question, reason='mentioned_in_question')
+        Notification.objects.filter(post=question, reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
         .select_related('user', 'triggered_by')
         .order_by('created_at')
     )
@@ -307,9 +309,9 @@ def add_question_mentions(request, question_id):
         {
             'id': mention.id,
             'user_id': mention.user_id,
-            'user_name': _display_name(question.team_id, mention.user_id),
+            'user_name': mention.user.name,
             'mentioned_by': mention.triggered_by_id,
-            'mentioned_by_name': _display_name(question.team_id, mention.triggered_by_id),
+            'mentioned_by_name': mention.triggered_by.name,
             'created_at': mention.created_at,
         }
         for mention in mentions
@@ -353,11 +355,11 @@ def remove_question_mention(request, question_id):
     removed_count, _ = Notification.objects.filter(
         post=question,
         user_id=target_user_id,
-        reason='mentioned_in_question',
+        reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
     ).delete()
 
     mentions = (
-        Notification.objects.filter(post=question, reason='mentioned_in_question')
+        Notification.objects.filter(post=question, reason=NOTIFICATION_REASON_MENTIONED_IN_QUESTION)
         .select_related('user', 'triggered_by')
         .order_by('created_at')
     )
@@ -366,9 +368,9 @@ def remove_question_mention(request, question_id):
         {
             'id': mention.id,
             'user_id': mention.user_id,
-            'user_name': _display_name(question.team_id, mention.user_id),
+            'user_name': mention.user.name,
             'mentioned_by': mention.triggered_by_id,
-            'mentioned_by_name': _display_name(question.team_id, mention.triggered_by_id),
+            'mentioned_by_name': mention.triggered_by.name,
             'created_at': mention.created_at,
         }
         for mention in mentions

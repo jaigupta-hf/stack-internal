@@ -17,6 +17,7 @@ from .serializers import (
 from .utils.auth import generate_jwt_token
 from teams.permissions import ensure_team_membership, get_team_membership
 from posts.models import Post
+from posts.constants import ARTICLE_TYPE_VALUES, POST_TYPE_TO_KEY, POST_TYPE_TO_LABEL
 
 
 @api_view(['POST'])
@@ -162,29 +163,11 @@ def get_profile(request):
         .order_by('-created_at')[:50]
     )
 
-    post_type_labels = {
-        0: 'Question',
-        1: 'Answer',
-        20: 'Article',
-        21: 'Article',
-        22: 'Article',
-        23: 'Article',
-    }
-
-    post_type_keys = {
-        0: 'question',
-        1: 'answer',
-        20: 'article',
-        21: 'article',
-        22: 'article',
-        23: 'article',
-    }
-
     activities = []
     for post in posts:
         display_title = post.title.strip()
         reference_post_id = post.id
-        reference_type = 'article' if post.type in (20, 21, 22, 23) else 'question'
+        reference_type = 'article' if post.type in ARTICLE_TYPE_VALUES else 'question'
 
         if post.type == 1:
             parent_title = post.parent.title.strip() if post.parent and post.parent.title else ''
@@ -198,8 +181,8 @@ def get_profile(request):
                 'post_id': post.id,
                 'type': post.type,
                 'delete_flag': post.delete_flag,
-                'type_key': post_type_keys.get(post.type, 'post'),
-                'type_label': post_type_labels.get(post.type, 'Post'),
+                'type_key': POST_TYPE_TO_KEY.get(post.type, 'post'),
+                'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
                 'title': display_title or 'Untitled post',
                 'created_at': post.created_at,
                 'reference_post_id': reference_post_id,

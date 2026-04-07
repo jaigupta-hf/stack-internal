@@ -14,6 +14,12 @@ from reputation.constants import (
     DOWNVOTE_RECEIVER_REFUND,
     DOWNVOTE_VOTER_COST,
     DOWNVOTE_VOTER_REFUND,
+    REPUTATION_REASON_DOWNVOTE,
+    REPUTATION_REASON_DOWNVOTED,
+    REPUTATION_REASON_UNDOWNVOTE,
+    REPUTATION_REASON_UNDOWNVOTED,
+    REPUTATION_REASON_UNUPVOTE,
+    REPUTATION_REASON_UPVOTE,
     UPVOTE_RECEIVER_GAIN,
     UPVOTE_RECEIVER_LOSS,
 )
@@ -57,7 +63,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
             triggered_by=voter,
             post=post,
             points=UPVOTE_RECEIVER_LOSS,
-            reason='unupvote',
+            reason=REPUTATION_REASON_UNUPVOTE,
         )
     if previous_vote_value != 1 and current_vote_value == 1:
         apply_reputation_change(
@@ -66,7 +72,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
             triggered_by=voter,
             post=post,
             points=UPVOTE_RECEIVER_GAIN,
-            reason='upvote',
+            reason=REPUTATION_REASON_UPVOTE,
         )
 
     if previous_vote_value == -1 and current_vote_value != -1:
@@ -76,7 +82,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
             triggered_by=voter,
             post=post,
             points=DOWNVOTE_RECEIVER_REFUND,
-            reason='undownvote',
+            reason=REPUTATION_REASON_UNDOWNVOTE,
         )
         apply_reputation_change(
             user=voter,
@@ -84,7 +90,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
             triggered_by=voter,
             post=post,
             points=DOWNVOTE_VOTER_REFUND,
-            reason='undownvoted',
+            reason=REPUTATION_REASON_UNDOWNVOTED,
         )
     if previous_vote_value != -1 and current_vote_value == -1:
         apply_reputation_change(
@@ -93,7 +99,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
             triggered_by=voter,
             post=post,
             points=DOWNVOTE_RECEIVER_LOSS,
-            reason='downvote',
+            reason=REPUTATION_REASON_DOWNVOTE,
         )
         apply_reputation_change(
             user=voter,
@@ -101,7 +107,7 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
             triggered_by=voter,
             post=post,
             points=DOWNVOTE_VOTER_COST,
-            reason='downvoted',
+            reason=REPUTATION_REASON_DOWNVOTED,
         )
 
 

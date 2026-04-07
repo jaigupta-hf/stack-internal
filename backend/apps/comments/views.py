@@ -10,6 +10,12 @@ from apps.collections.models import Collection
 from posts.models import Post
 from posts.models import PostFollow
 from notifications.api import create_notification
+from notifications.constants import (
+	NOTIFICATION_REASON_ANSWER_COMMENTED,
+	NOTIFICATION_REASON_COMMENT_REPLIED,
+	NOTIFICATION_REASON_NEW_COMMENT_ON_FOLLOWED_POST,
+	NOTIFICATION_REASON_QUESTION_COMMENTED,
+)
 from .models import Comment
 from .serializers import CommentOutputSerializer, CreateCommentInputSerializer, UpdateCommentInputSerializer
 
@@ -110,28 +116,28 @@ def create_comment(request):
 			post=comment.post,
 			user=parent_comment.user,
 			triggered_by=user,
-			reason='comment_replied',
+			reason=NOTIFICATION_REASON_COMMENT_REPLIED,
 		)
 	elif post and post.type == 0:
 		create_notification(
 			post=post,
 			user=post.user,
 			triggered_by=user,
-			reason='question_commented',
+			reason=NOTIFICATION_REASON_QUESTION_COMMENTED,
 		)
 	elif post and post.type == 1:
 		create_notification(
 			post=post,
 			user=post.user,
 			triggered_by=user,
-			reason='answer_commented',
+			reason=NOTIFICATION_REASON_ANSWER_COMMENTED,
 		)
 
 	if post and post.type == 0:
 		_notify_question_followers(
 			question=post,
 			triggered_by=user,
-			reason='new_comment_on_followed_post',
+			reason=NOTIFICATION_REASON_NEW_COMMENT_ON_FOLLOWED_POST,
 		)
 
 	output = CommentOutputSerializer(
