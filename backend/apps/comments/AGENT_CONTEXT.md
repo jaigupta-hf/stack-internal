@@ -11,7 +11,7 @@ It provides:
 
 ## Main Files
 - `models.py`: `Comment`.
-- `views.py`: create and update/delete handlers.
+- `views.py`: `CommentViewSet` actions for create/update/delete flows.
 - `serializers.py`: validation for create/update and output payload.
 - `urls.py`: routes under `/api/comments/*`.
 
@@ -32,15 +32,17 @@ Base path: `/api/comments/`
 - `DELETE /{comment_id}/` -> delete own comment.
 
 ## Key Function Behavior
-- `create_comment`
+- `CommentViewSet.create`
   - Validates targeting rules.
   - For replies, resolves parent thread and enforces max reply depth of 2 levels.
   - Requires team membership for target team.
   - Emits notifications for reply/comment events.
   - Notifies followers when commenting on a question.
-- `comment_detail`
-  - Requires membership and ownership checks.
+- `CommentViewSet.partial_update`
+  - Requires ownership checks.
   - PATCH updates body.
+- `CommentViewSet.destroy`
+  - Requires ownership checks.
   - DELETE removes comment.
 
 ## Cross-App Dependencies

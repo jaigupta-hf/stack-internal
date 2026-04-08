@@ -10,7 +10,7 @@ It provides:
 
 ## Main Files
 - `models.py`: `ReputationHistory`, `Bounty`.
-- `views.py`: reputation history endpoint.
+- `views.py`: `ReputationHistoryListView` class-based endpoint.
 - `api.py`: `apply_reputation_change` service function.
 - `serializers.py`: query/output schema.
 - `urls.py`: route under `/api/reputation/*`.
@@ -24,6 +24,7 @@ Base path: `/api/reputation/`
 
 - `GET history/` -> grouped reputation entries by date.
   - Query: `team_id` required, `user_id` optional, pagination supported.
+  - Access control: `IsAuthenticated` + `IsTeamMember`.
 
 ## Core Service Function
 ### `apply_reputation_change(user, team, triggered_by, post, points, reason)`
