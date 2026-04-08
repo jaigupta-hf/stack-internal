@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/api';
 import { formatProfileTime } from '../utils/dateTime';
 import PostsTab from './profileTabs/PostsTab';
@@ -8,6 +9,7 @@ import ReputationTab from './profileTabs/ReputationTab';
 import BountiesTab from './profileTabs/BountiesTab';
 import BadgesTab from './profileTabs/BadgesTab';
 import BookmarksTab from './profileTabs/BookmarksTab';
+import { useTeam } from '../context/TeamContext';
 
 const PROFILE_NAV_TABS = [
   { key: 'posts', label: 'Posts' },
@@ -29,7 +31,9 @@ const PROFILE_TAB_COMPONENTS = {
   badges: BadgesTab,
 };
 
-function ProfilePage({ team, onClose, profileUserId = null, onOpenUserProfile }) {
+function ProfilePage({ onClose, profileUserId = null, onOpenUserProfile }) {
+  const navigate = useNavigate();
+  const { activeTeam } = useTeam();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,7 +49,7 @@ function ProfilePage({ team, onClose, profileUserId = null, onOpenUserProfile })
 
   useEffect(() => {
     const loadProfile = async () => {
-      if (!team?.id) {
+      if (!activeTeam?.id) {
         return;
       }
 
@@ -53,7 +57,7 @@ function ProfilePage({ team, onClose, profileUserId = null, onOpenUserProfile })
       setError('');
 
       try {
-        const data = await authService.getProfile(team.id, profileUserId);
+        const data = await authService.getProfile(activeTeam.id, profileUserId);
         setProfile(data);
       } catch (err) {
         setError(err.response?.data?.error || 'Failed to load profile.');
@@ -63,7 +67,7 @@ function ProfilePage({ team, onClose, profileUserId = null, onOpenUserProfile })
     };
 
     loadProfile();
-  }, [team?.id, profileUserId]);
+  }, [activeTeam?.id, profileUserId]);
 
   useEffect(() => {
     if (!profile) {
@@ -87,16 +91,15 @@ function ProfilePage({ team, onClose, profileUserId = null, onOpenUserProfile })
       return;
     }
 
-    const basePath = `/${team?.url_endpoint}`;
+    const basePath = `/${activeTeam?.url_endpoint}`;
     const tabPath = referenceType === 'article'
       ? `${basePath}/articles`
       : referenceType === 'collection'
         ? `${basePath}/collections`
         : `${basePath}/questions`;
     const paramKey = referenceType === 'article' ? 'article' : referenceType === 'collection' ? 'collection' : 'question';
-    window.history.pushState({}, '', `${tabPath}?${paramKey}=${referenceId}`);
+    navigate(`${tabPath}?${paramKey}=${referenceId}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
-    onClose();
   };
 
   const handleProfileFieldChange = (field, value) => {
@@ -165,7 +168,7 @@ function ProfilePage({ team, onClose, profileUserId = null, onOpenUserProfile })
     const ActiveTabComponent = PROFILE_TAB_COMPONENTS[activeSection] || PostsTab;
     return (
       <ActiveTabComponent
-        team={team}
+        team={activeTeam}
         profileUserId={profile?.id}
         canEdit={Boolean(profile?.can_edit)}
         activities={activities}

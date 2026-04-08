@@ -3,6 +3,7 @@ import { tagService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import useFilteredList from '../../hooks/useFilteredList';
 import useTeamResource from '../../hooks/useTeamResource';
+import { useTeam } from '../../context/TeamContext';
 
 const formatDate = (value) => {
   if (!value) {
@@ -20,24 +21,25 @@ const formatDate = (value) => {
   return `${day}/${month}/${year}`;
 };
 
-function TagsTab({ team }) {
+function TagsTab() {
+  const { activeTeam } = useTeam();
   const [searchQuery, setSearchQuery] = useState('');
   const [postSortOrder, setPostSortOrder] = useState('desc');
   const loadTags = useCallback(async () => {
-    const data = await tagService.listTags(team?.id);
+    const data = await tagService.listTags(activeTeam?.id);
     return Array.isArray(data) ? data : [];
-  }, [team?.id]);
+  }, [activeTeam?.id]);
 
   const {
     data: tags,
     loading,
     error,
   } = useTeamResource({
-    enabled: Boolean(team?.id),
+    enabled: Boolean(activeTeam?.id),
     initialData: [],
     loadResource: loadTags,
     fallbackErrorMessage: 'Failed to load tags.',
-    dependencies: [team?.id],
+    dependencies: [activeTeam?.id],
   });
 
   const visibleTags = useFilteredList(tags, (source) => {
