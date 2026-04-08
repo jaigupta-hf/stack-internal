@@ -5,20 +5,9 @@ import {
   useLocation,
   useMatches,
   useNavigate,
-  useOutletContext,
   useParams,
 } from 'react-router-dom';
 import './App.css';
-
-import ProfilePage from './pages/ProfilePage';
-import HomeTab from './pages/navigationTabs/HomeTab';
-import QuestionTab from './pages/navigationTabs/QuestionTab';
-import ArticlesTab from './pages/navigationTabs/ArticlesTab';
-import CollectionsTab from './pages/navigationTabs/CollectionsTab';
-import ForYouTab from './pages/navigationTabs/ForYouTab';
-import BookmarksTab from './pages/navigationTabs/BookmarksTab';
-import TagsTab from './pages/navigationTabs/TagsTab';
-import UsersTab from './pages/navigationTabs/UsersTab';
 
 import { teamService } from './services/api';
 import { useAuth } from './context/AuthContext';
@@ -47,20 +36,6 @@ const slugToTab = Object.entries(TAB_SLUGS).reduce((acc, [tab, slug]) => {
 const buildTeamTabPath = (teamSlug, tab) => {
   const tabSlug = TAB_SLUGS[tab] || TAB_SLUGS.Home;
   return `/${teamSlug}/${tabSlug}`;
-};
-
-const getProfileUserIdFromSearch = (search) => {
-  const value = new URLSearchParams(search).get('profile');
-  if (!value) {
-    return null;
-  }
-
-  if (value === 'me') {
-    return 'me';
-  }
-
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
 const getProfileReturnTabSlug = (search) => {
@@ -747,60 +722,6 @@ function App() {
         </main>
       </div>
     </div>
-  );
-}
-
-export function HomeTabRoute() {
-  const { onOpenQuestion, onOpenUserProfile } = useOutletContext();
-  return <HomeTab onQuestionClick={onOpenQuestion} onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function QuestionTabRoute() {
-  const { onOpenUserProfile } = useOutletContext();
-  return <QuestionTab onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function ArticlesTabRoute() {
-  const { onOpenUserProfile } = useOutletContext();
-  return <ArticlesTab onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function CollectionsTabRoute() {
-  const { onOpenUserProfile } = useOutletContext();
-  return <CollectionsTab onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function ForYouTabRoute() {
-  const { onOpenNotificationReference, onOpenUserProfile } = useOutletContext();
-  return <ForYouTab onOpenReference={onOpenNotificationReference} onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function BookmarksTabRoute() {
-  const { onOpenBookmarkReference, onOpenUserProfile } = useOutletContext();
-  return <BookmarksTab onOpenReference={onOpenBookmarkReference} onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function TagsTabRoute() {
-  return <TagsTab />;
-}
-
-export function UsersTabRoute() {
-  const { onOpenUserProfile } = useOutletContext();
-  return <UsersTab onOpenUserProfile={onOpenUserProfile} />;
-}
-
-export function ProfileRoute() {
-  const location = useLocation();
-  const { onOpenUserProfile, onCloseProfile } = useOutletContext();
-  const profileFromSearch = getProfileUserIdFromSearch(location.search);
-  const profileUserId = profileFromSearch === 'me' ? null : profileFromSearch;
-
-  return (
-    <ProfilePage
-      profileUserId={profileUserId}
-      onOpenUserProfile={onOpenUserProfile}
-      onClose={onCloseProfile}
-    />
   );
 }
 
