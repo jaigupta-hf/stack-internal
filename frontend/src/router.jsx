@@ -1,23 +1,89 @@
-import { Navigate, createBrowserRouter, useParams } from 'react-router-dom';
-import App from './App.jsx';
+import { Navigate, createBrowserRouter } from 'react-router-dom';
+import App, {
+  ArticlesTabRoute,
+  BookmarksTabRoute,
+  CollectionsTabRoute,
+  ForYouTabRoute,
+  HomeTabRoute,
+  ProfileRoute,
+  QuestionTabRoute,
+  TagsTabRoute,
+  UsersTabRoute,
+} from './App.jsx';
+import AppIndexPage from './pages/AppIndexPage.jsx';
 
 function TeamSlugRedirect() {
-  const { teamSlug } = useParams();
-  return <Navigate to={`/${teamSlug}/home`} replace />;
+  return <Navigate to="home" replace />;
 }
 
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <App />,
+    element: <AppIndexPage />,
   },
   {
     path: '/:teamSlug',
-    element: <TeamSlugRedirect />,
-  },
-  {
-    path: '/:teamSlug/:tabSlug',
     element: <App />,
+    children: [
+      {
+        index: true,
+        element: <TeamSlugRedirect />,
+      },
+      {
+        path: 'home',
+        element: <HomeTabRoute />,
+        handle: { tab: 'Home' },
+      },
+      {
+        path: 'questions',
+        element: <QuestionTabRoute />,
+        handle: { tab: 'Questions' },
+      },
+      {
+        path: 'articles',
+        element: <ArticlesTabRoute />,
+        handle: { tab: 'Articles' },
+      },
+      {
+        path: 'collections',
+        element: <CollectionsTabRoute />,
+        handle: { tab: 'Collections' },
+      },
+      {
+        path: 'for-you',
+        element: <ForYouTabRoute />,
+        handle: { tab: 'For You' },
+      },
+      {
+        path: 'bookmarks',
+        element: <BookmarksTabRoute />,
+        handle: { tab: 'Bookmarks' },
+      },
+      {
+        path: 'tags',
+        element: <TagsTabRoute />,
+        handle: { tab: 'Tags' },
+      },
+      {
+        path: 'users',
+        element: <UsersTabRoute />,
+        handle: { tab: 'Users' },
+      },
+      {
+        path: 'admin-settings',
+        element: <CollectionsTabRoute />,
+        handle: { tab: 'Admin Settings' },
+      },
+      {
+        path: 'profile',
+        element: <ProfileRoute />,
+        handle: { tab: 'Profile' },
+      },
+      {
+        path: '*',
+        element: <Navigate to="home" replace />,
+      },
+    ],
   },
   {
     path: '*',

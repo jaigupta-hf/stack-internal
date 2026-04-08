@@ -1,10 +1,16 @@
 import { useEffect, useRef } from 'react';
+import {
+  Navigate,
+  Outlet,
+  useLocation,
+  useMatches,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from 'react-router-dom';
 import './App.css';
 
-import Login from './pages/LoginPage';
-import TeamsPage from './pages/TeamsPage';
 import ProfilePage from './pages/ProfilePage';
-
 import HomeTab from './pages/navigationTabs/HomeTab';
 import QuestionTab from './pages/navigationTabs/QuestionTab';
 import ArticlesTab from './pages/navigationTabs/ArticlesTab';
@@ -13,7 +19,6 @@ import ForYouTab from './pages/navigationTabs/ForYouTab';
 import BookmarksTab from './pages/navigationTabs/BookmarksTab';
 import TagsTab from './pages/navigationTabs/TagsTab';
 import UsersTab from './pages/navigationTabs/UsersTab';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { teamService } from './services/api';
 import { useAuth } from './context/AuthContext';
@@ -21,7 +26,8 @@ import { useTeam } from './context/TeamContext';
 import { useUI } from './context/UIContext';
 
 const TABS = ['Home', 'Questions', 'Articles', 'Collections', 'For You', 'Bookmarks', 'Tags', 'Users', 'Admin Settings'];
-const TAB_SLUGS = {
+
+export const TAB_SLUGS = {
   Home: 'home',
   Questions: 'questions',
   Articles: 'articles',
@@ -55,6 +61,11 @@ const getProfileUserIdFromSearch = (search) => {
 
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const getProfileReturnTabSlug = (search) => {
+  const value = new URLSearchParams(search).get('from');
+  return value || TAB_SLUGS.Home;
 };
 
 const TabIcon = ({ tab }) => {
@@ -131,7 +142,8 @@ const TabIcon = ({ tab }) => {
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { teamSlug: routeTeamSlug = '', tabSlug: routeTabSlug = '' } = useParams();
+  const matches = useMatches();
+  const { teamSlug = '' } = useParams();
   const { user, loading, setUser } = useAuth();
   const {
     activeTeam,
@@ -156,10 +168,6 @@ function App() {
   const {
     teamSwitcherOpen,
     setTeamSwitcherOpen,
-    showProfilePage,
-    setShowProfilePage,
-    profileUserId,
-    setProfileUserId,
     globalSearchQuery,
     setGlobalSearchQuery,
     globalSearchResults,
@@ -173,6 +181,18 @@ function App() {
   const teamSwitcherRef = useRef(null);
   const globalSearchRef = useRef(null);
 
+  const routeTab = [...matches].reverse().find((match) => match.handle?.tab)?.handle?.tab || null;
+  const navSelectedTab = routeTab && routeTab !== 'Profile' ? routeTab : activeTab;
+
+  const resetTeamScope = () => {
+    setActiveTeam(null);
+    setActiveTab('Home');
+    setIsTeamMember(true);
+    setIsTeamAdmin(false);
+    setJoinTeamError('');
+    setForYouUnreadCount(0);
+  };
+
   const pushTeamTabUrl = (team, tab, { replace = false } = {}) => {
     if (!team?.url_endpoint) {
       return;
@@ -184,40 +204,41 @@ function App() {
     }
   };
 
-  const replaceTeamsUrl = () => {
-    if (location.pathname !== '/') {
-      navigate('/', { replace: true });
+  const setProfileInUrl = (profileValue, fromTabSlug, replace = false) => {
+    if (!activeTeam?.url_endpoint) {
+      return;
     }
-  };
 
-  const setProfileInUrl = (profileValue, replace = false) => {
-    const searchParams = new URLSearchParams(location.search);
-    if (profileValue === null || profileValue === undefined || profileValue === '') {
-      searchParams.delete('profile');
-    } else {
+    const searchParams = new URLSearchParams();
+    if (profileValue !== null && profileValue !== undefined && profileValue !== '') {
       searchParams.set('profile', String(profileValue));
+    }
+
+    if (fromTabSlug) {
+      searchParams.set('from', fromTabSlug);
     }
 
     const search = searchParams.toString();
     navigate(
       {
-        pathname: location.pathname,
+        pathname: `/${activeTeam.url_endpoint}/profile`,
         search: search ? `?${search}` : '',
       },
       { replace },
     );
   };
 
-  const hydrateTeamFromRoute = async (companySlug, tabSlug) => {
-    const data = await teamService.getTeamBySlug(companySlug);
+  const hydrateTeamFromRoute = async (teamSlugFromRoute, desiredTab) => {
+    const data = await teamService.getTeamBySlug(teamSlugFromRoute);
     const teamFromPath = {
       id: data.id,
       name: data.name,
       url_endpoint: data.url_endpoint,
     };
 
-    const mappedTab = slugToTab[tabSlug] || 'Home';
-    const nextTab = data.is_member && (data.is_admin || mappedTab !== 'Admin Settings') ? mappedTab : 'Home';
+    const nextTab = data.is_member && (data.is_admin || desiredTab !== 'Admin Settings')
+      ? desiredTab
+      : 'Home';
 
     setActiveTeam(teamFromPath);
     setIsTeamMember(data.is_member);
@@ -226,7 +247,7 @@ function App() {
     setActiveTab(nextTab);
 
     const canonicalPath = buildTeamTabPath(teamFromPath.url_endpoint, nextTab);
-    if (location.pathname !== canonicalPath) {
+    if (routeTab !== 'Profile' && location.pathname !== canonicalPath) {
       navigate(canonicalPath, { replace: true });
     }
   };
@@ -244,7 +265,7 @@ function App() {
 
     window.addEventListener('mousedown', handleOutsideClick);
     return () => window.removeEventListener('mousedown', handleOutsideClick);
-  }, [teamSwitcherOpen]);
+  }, [teamSwitcherOpen, setTeamSwitcherOpen]);
 
   useEffect(() => {
     if (!globalSearchOpen) {
@@ -259,102 +280,62 @@ function App() {
 
     window.addEventListener('mousedown', handleOutsideClick);
     return () => window.removeEventListener('mousedown', handleOutsideClick);
-  }, [globalSearchOpen]);
+  }, [globalSearchOpen, setGlobalSearchOpen]);
 
   useEffect(() => {
     if (!user) {
       return;
     }
 
-    if (!routeTeamSlug) {
-      setActiveTeam(null);
-      setActiveTab('Home');
-      setIsTeamMember(true);
-      setIsTeamAdmin(false);
-      setJoinTeamError('');
+    if (!teamSlug) {
+      resetTeamScope();
       return;
     }
 
-    const syncTeamFromRoute = async () => {
-      if (activeTeam?.url_endpoint === routeTeamSlug) {
-        const mappedTab = slugToTab[routeTabSlug] || 'Home';
-        const nextTab = isTeamMember && (isTeamAdmin || mappedTab !== 'Admin Settings') ? mappedTab : 'Home';
-        setActiveTab(nextTab);
+    const nextTab = routeTab && routeTab !== 'Profile' ? routeTab : activeTab || 'Home';
 
-        const canonicalPath = buildTeamTabPath(routeTeamSlug, nextTab);
-        if (location.pathname !== canonicalPath) {
-          navigate(canonicalPath, { replace: true });
+    const syncTeamFromRoute = async () => {
+      if (activeTeam?.url_endpoint === teamSlug) {
+        if (routeTab && routeTab !== 'Profile') {
+          setActiveTab(routeTab);
+        }
+
+        if (routeTab !== 'Profile' && (!isTeamMember || (nextTab === 'Admin Settings' && !isTeamAdmin))) {
+          pushTeamTabUrl(activeTeam, 'Home', { replace: true });
         }
         return;
       }
 
       try {
-        await hydrateTeamFromRoute(routeTeamSlug, routeTabSlug);
+        await hydrateTeamFromRoute(teamSlug, nextTab);
       } catch {
-        replaceTeamsUrl();
-        setActiveTeam(null);
-        setActiveTab('Home');
-        setIsTeamMember(true);
-        setIsTeamAdmin(false);
-        setJoinTeamError('');
+        resetTeamScope();
+        navigate('/', { replace: true });
       }
     };
 
     syncTeamFromRoute();
   }, [
     user,
-    routeTeamSlug,
-    routeTabSlug,
+    teamSlug,
+    routeTab,
+    activeTab,
     activeTeam?.url_endpoint,
     isTeamMember,
     isTeamAdmin,
-    location.pathname,
-    navigate,
-    setActiveTeam,
     setActiveTab,
-    setIsTeamMember,
+    setActiveTeam,
     setIsTeamAdmin,
+    setIsTeamMember,
     setJoinTeamError,
+    navigate,
   ]);
 
-  useEffect(() => {
-    if (!routeTeamSlug) {
-      setShowProfilePage(false);
-      setProfileUserId(null);
-      return;
-    }
-
-    const profileFromUrl = getProfileUserIdFromSearch(location.search);
-    if (profileFromUrl === 'me') {
-      setProfileUserId(null);
-      setShowProfilePage(true);
-      return;
-    }
-
-    if (profileFromUrl) {
-      setProfileUserId(profileFromUrl);
-      setShowProfilePage(true);
-      return;
-    }
-
-    setShowProfilePage(false);
-    setProfileUserId(null);
-  }, [location.search, routeTeamSlug, setProfileUserId, setShowProfilePage]);
-
-  const handleLoginSuccess = (userData) => {
-    setUser(userData);
-  };
-
   const handleLogout = () => {
-    setActiveTeam(null);
-    setActiveTab('Home');
-    setIsTeamMember(true);
-    setIsTeamAdmin(false);
-    setJoinTeamError('');
-    setShowProfilePage(false);
-    setProfileUserId(null);
-    replaceTeamsUrl();
+    resetTeamScope();
+    setTeamSwitcherOpen(false);
     setUser(null);
+    navigate('/', { replace: true });
   };
 
   const handleTeamOpen = (team) => {
@@ -363,8 +344,6 @@ function App() {
     setIsTeamMember(true);
     setIsTeamAdmin(Boolean(team.is_admin));
     setJoinTeamError('');
-    setShowProfilePage(false);
-    setProfileUserId(null);
     setForYouUnreadCount(0);
     setTeamSwitcherOpen(false);
     setJoinedTeams((prev) => {
@@ -382,51 +361,45 @@ function App() {
     }
 
     setActiveTab(tab);
-    setShowProfilePage(false);
-    setProfileUserId(null);
     if (activeTeam) {
       pushTeamTabUrl(activeTeam, tab);
     }
   };
 
   const handleBackToTeams = () => {
-    setActiveTeam(null);
-    setActiveTab('Home');
-    setIsTeamMember(true);
-    setIsTeamAdmin(false);
-    setJoinTeamError('');
-    setShowProfilePage(false);
-    setProfileUserId(null);
-    setForYouUnreadCount(0);
+    resetTeamScope();
     setTeamSwitcherOpen(false);
-    replaceTeamsUrl();
+    navigate('/', { replace: true });
   };
 
   const handleOpenSelfProfile = () => {
-    setProfileUserId(null);
-    setShowProfilePage(true);
-    setProfileInUrl('me');
+    const fromTabSlug = TAB_SLUGS[navSelectedTab] || TAB_SLUGS.Home;
+    setProfileInUrl('me', fromTabSlug);
   };
 
   const handleOpenQuestionFromHome = (questionId) => {
-    if (!activeTeam?.url_endpoint || !questionId) return;
-    const nextPath = `/${activeTeam.url_endpoint}/questions?question=${questionId}`;
-    setShowProfilePage(false);
-    setProfileUserId(null);
+    if (!activeTeam?.url_endpoint || !questionId) {
+      return;
+    }
+
     setActiveTab('Questions');
-    navigate(nextPath);
+    navigate(`/${activeTeam.url_endpoint}/questions?question=${questionId}`);
   };
 
   const handleOpenUserProfile = (selectedUserId) => {
-    setProfileUserId(selectedUserId);
-    setShowProfilePage(true);
-    setProfileInUrl(selectedUserId);
+    const fromTabSlug = TAB_SLUGS[navSelectedTab] || TAB_SLUGS.Home;
+    setProfileInUrl(selectedUserId, fromTabSlug);
   };
 
   const handleCloseProfilePage = () => {
-    setShowProfilePage(false);
-    setProfileUserId(null);
-    setProfileInUrl(null);
+    if (!activeTeam?.url_endpoint) {
+      return;
+    }
+
+    const returnTabSlug = getProfileReturnTabSlug(location.search);
+    const returnTab = slugToTab[returnTabSlug] || 'Home';
+    setActiveTab(returnTab);
+    navigate(`/${activeTeam.url_endpoint}/${returnTabSlug}`, { replace: true });
   };
 
   const handleSelectGlobalSearchResult = (item) => {
@@ -445,8 +418,6 @@ function App() {
       nextPath = `/${activeTeam.url_endpoint}/collections?collection=${item.id}`;
     }
 
-    setShowProfilePage(false);
-    setProfileUserId(null);
     setActiveTab(nextTab);
     navigate(nextPath);
     window.dispatchEvent(new PopStateEvent('popstate'));
@@ -494,8 +465,6 @@ function App() {
       nextPath = `/${activeTeam.url_endpoint}/articles?article=${targetId}`;
     }
 
-    setShowProfilePage(false);
-    setProfileUserId(null);
     setActiveTab(nextTab);
     navigate(nextPath);
     window.dispatchEvent(new PopStateEvent('popstate'));
@@ -524,8 +493,6 @@ function App() {
       nextPath = `/${activeTeam.url_endpoint}/collections?collection=${item.collection_id}`;
     }
 
-    setShowProfilePage(false);
-    setProfileUserId(null);
     setActiveTab(nextTab);
     navigate(nextPath);
     window.dispatchEvent(new PopStateEvent('popstate'));
@@ -539,276 +506,301 @@ function App() {
     );
   }
 
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!activeTeam) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-xl text-slate-200">Loading team...</div>
+      </div>
+    );
+  }
+
   return (
-    <>
-      {user ? (
-        activeTeam ? (
+    <div className="relative h-screen w-full overflow-hidden bg-[#0b1014] text-slate-100">
+      <div className="relative mx-auto flex h-screen w-full max-w-[92rem] flex-col overflow-hidden px-3 py-2 sm:px-4 lg:px-8">
+        <nav className="relative z-50 mb-3 overflow-visible rounded-3xl border border-white/0 bg-white/5 px-4 py-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-semibold text-white sm:text-3xl">Stack Internal</h1>
+                <div className="relative" ref={teamSwitcherRef}>
+                  <button
+                    type="button"
+                    onClick={() => setTeamSwitcherOpen((prev) => !prev)}
+                    className="inline-flex items-center gap-2 rounded-md border border-white/0 bg-white/10 px-4 py-1 text-[0.65rem] tracking-[0.16em] text-slate-200 uppercase transition hover:bg-white/15"
+                  >
+                    <span className="max-w-[220px] truncate">{activeTeam.name}</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5" aria-hidden="true">
+                      <path d={teamSwitcherOpen ? 'm6 14 6-6 6 6' : 'm6 10 6 6 6-6'} />
+                    </svg>
+                  </button>
 
-          /* Heading Bar styling */
-          <div className="relative h-screen w-full overflow-hidden bg-[#0b1014] text-slate-100">
-            <div className="relative mx-auto flex h-screen w-full max-w-[92rem] flex-col overflow-hidden px-3 py-2 sm:px-4 lg:px-8">
-              <nav className="relative z-50 mb-3 overflow-visible rounded-3xl border border-white/0 bg-white/5 px-4 py-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:px-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="mt-2 flex flex-wrap items-center gap-3">
-                      <h1 className="text-2xl font-semibold text-white sm:text-3xl">Stack Internal</h1>
-                      <div className="relative" ref={teamSwitcherRef}>
-                        <button
-                          type="button"
-                          onClick={() => setTeamSwitcherOpen((prev) => !prev)}
-                          className="inline-flex items-center gap-2 rounded-md border border-white/0 bg-white/10 px-4 py-1 text-[0.65rem] tracking-[0.16em] text-slate-200 uppercase transition hover:bg-white/15"
-                        >
-                          <span className="max-w-[220px] truncate">{activeTeam.name}</span>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5" aria-hidden="true">
-                            <path d={teamSwitcherOpen ? 'm6 14 6-6 6 6' : 'm6 10 6 6 6-6'} />
-                          </svg>
-                        </button>
+                  {teamSwitcherOpen ? (
+                    <div className="absolute left-0 top-full z-[90] mt-2 w-50 overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-2 shadow-2xl shadow-black/50">
+                      <p className="px-2 pb-1 text-[10px] tracking-[0.10em] text-slate-400 uppercase">Joined teams</p>
 
-                        {teamSwitcherOpen ? (
-                          <div className="absolute left-0 top-full z-[90] mt-2 w-50 overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-2 shadow-2xl shadow-black/50">
-                          <p className="px-2 pb-1 text-[10px] tracking-[0.10em] text-slate-400 uppercase">Joined teams</p>
+                      {loadingJoinedTeams ? <p className="px-2 py-2 text-xs text-slate-400">Loading teams...</p> : null}
 
-                          {loadingJoinedTeams ? <p className="px-2 py-2 text-xs text-slate-400">Loading teams...</p> : null}
-
-                          {!loadingJoinedTeams && joinedTeams.length === 0 ? (
-                            <p className="px-2 py-2 text-xs text-slate-400">No joined teams found.</p>
-                          ) : null}
-
-                          {!loadingJoinedTeams && joinedTeams.length > 0 ? (
-                            <ul className="max-h-56 space-y-1 overflow-y-auto">
-                              {joinedTeams.map((team) => (
-                                <li key={team.id}>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleTeamOpen(team)}
-                                    className={`w-full rounded-3xl px-3 py-1 text-left text-[0.65rem] tracking-[0.16em] uppercase transition ${
-                                      activeTeam?.id === team.id
-                                        ? 'bg-cyan-500/20 text-cyan-300'
-                                        : 'text-slate-200 hover:bg-white/10'
-                                    }`}
-                                  >
-                                    <span className="block truncate">{team.name}</span>
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-
-                          <div className="mt-1 border-t border-white/10 pt-2">
-                            <button
-                              type="button"
-                              onClick={handleBackToTeams}
-                              className="w-full rounded-3xl px-3 py-1 text-left text-[10px] tracking-[0.12em] text-slate-200 uppercase transition hover:bg-white/10"
-                            >
-                              Go to teams listing
-                            </button>
-                          </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="relative w-full sm:max-w-xl" ref={globalSearchRef}>
-                    <input
-                      type="text"
-                      value={globalSearchQuery}
-                      onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                      onFocus={() => {
-                        if (globalSearchQuery.trim()) {
-                          setGlobalSearchOpen(true);
-                        }
-                      }}
-                      className="w-full rounded-full border border-white/15 bg-black/20 px-4 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
-                      placeholder="Search questions, articles, collections by title"
-                    />
-
-                    {globalSearchOpen && globalSearchQuery.trim() ? (
-                      <div className="absolute left-0 right-0 top-full z-[95] mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-2 shadow-2xl shadow-black/50">
-                        {globalSearchLoading ? (
-                          <p className="px-2 py-2 text-xs text-slate-400">Searching...</p>
-                        ) : null}
-
-                        {!globalSearchLoading && globalSearchError ? (
-                          <p className="px-2 py-2 text-xs text-rose-300">{globalSearchError}</p>
-                        ) : null}
-
-                        {!globalSearchLoading && !globalSearchError && globalSearchResults.length === 0 ? (
-                          <p className="px-2 py-2 text-xs text-slate-400">No results found.</p>
-                        ) : null}
-
-                        {!globalSearchLoading && !globalSearchError && globalSearchResults.length > 0 ? (
-                          <ul className="max-h-72 space-y-1 overflow-y-auto">
-                            {globalSearchResults.map((item) => (
-                              <li key={`${item.type}-${item.id}`}>
-                                <div className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-white/10">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSelectGlobalSearchResult(item)}
-                                    className="w-full truncate text-left text-sm text-slate-100"
-                                  >
-                                    {item.title}
-                                  </button>
-                                  <p className="mt-1 text-[11px] text-slate-400">
-                                    {item.type} •{' '}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenUserProfile(item.user_id || item.user)}
-                                      className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
-                                    >
-                                      {item.user_name}
-                                    </button>
-                                  </p>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={handleOpenSelfProfile}
-                      className="max-w-[220px] truncate rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
-                    >
-                      {user.name}
-                      {typeof currentTeamReputation === 'number' ? ` • ${currentTeamReputation}` : ''}
-                    </button>
-                    <button
-                      onClick={handleLogout}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/0 bg-white/10 text-white transition hover:bg-white/20"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
-                        <path d="M10 5H5v14h5" />
-                        <path d="M14 17l5-5-5-5" />
-                        <path d="M19 12H7" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </nav>
-
-              <main className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-
-                {/* Sidebar styling and logic for team tabs */}
-                <aside className="overflow-hidden rounded-3xl border border-white/0 bg-white/5 p-3 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
-                  <p className="px-2 pb-3 text-xs tracking-[0.14em] text-slate-400 uppercase">Navigation</p>
-                  <div className="space-y-2">
-                    {TABS.filter((tab) => (tab === 'Admin Settings' ? isTeamAdmin : true)).map((tab) => {
-                      const selected = activeTab === tab;
-                      return (
-                        <div key={tab}>
-                          <button
-                            onClick={() => handleTabChange(tab)}
-                            disabled={!isTeamMember}
-                            className={
-                              selected
-                                ? 'w-full rounded-md bg-cyan-300/15 px-4 py-1.5 text-left text-sm font-semibold text-cyan-100'
-                                : `w-full rounded-md px-4 py-1.5 text-left text-sm font-medium transition ${
-                                    isTeamMember
-                                      ? 'text-slate-200 hover:border-white/25 hover:bg-white/10'
-                                      : 'cursor-not-allowed text-slate-500'
-                                  }`
-                            }
-                          >
-                            <span className="flex items-center gap-2.5">
-                              <span className={selected ? 'text-cyan-200' : 'text-slate-400'}>
-                                <TabIcon tab={tab} />
-                              </span>
-                              <span>{tab}</span>
-                              {tab === 'For You' && forYouUnreadCount > 0 ? (
-                                <span className="ml-auto rounded-full border border-cyan-300/0 bg-cyan-300/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-100">
-                                  {forYouUnreadCount}
-                                </span>
-                              ) : null}
-                            </span>
-                          </button>
-                          {tab === 'Home' ? <div className="mt-6 border-t border-white/35" /> : null}
-                          {tab === 'Collections' ? <div className="mt-6 border-t border-white/35" /> : null}
-                          {tab === 'Tags' ? <div className="mt-6 border-t border-white/35" /> : null}
-                          {tab === 'Users' ? <div className="mt-6 border-t border-white/35" /> : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </aside>
-
-                {/* Main content area where team tab content is rendered */}
-                <section className="min-h-0 overflow-y-auto rounded-3xl border border-white/0 bg-white/5 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
-                  {showProfilePage ? (
-                    <ProfilePage
-                      profileUserId={profileUserId}
-                      onOpenUserProfile={handleOpenUserProfile}
-                      onClose={handleCloseProfilePage}
-                    />
-                  ) : null}
-
-                  {!showProfilePage ? (
-                  !isTeamMember ? (
-                    <div className="mx-auto mt-10 max-w-xl rounded-3xl border border-white/0 bg-black/20 p-8 text-center">
-                      <p className="text-xs tracking-[0.14em] text-slate-400 uppercase">Team Access</p>
-                      <h2 className="mt-2 text-2xl font-semibold text-white">Join {activeTeam.name}</h2>
-                      <p className="mt-3 text-sm text-slate-300">
-                        You are not a member of this company yet. Join to access questions, tags, users, and other team content.
-                      </p>
-
-                      {joinTeamError ? (
-                        <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
-                          {joinTeamError}
-                        </p>
+                      {!loadingJoinedTeams && joinedTeams.length === 0 ? (
+                        <p className="px-2 py-2 text-xs text-slate-400">No joined teams found.</p>
                       ) : null}
 
-                      <button
-                        type="button"
-                        onClick={handleJoinTeam}
-                        disabled={joiningTeam}
-                        className="mt-6 rounded-full bg-cyan-400 px-6 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-70"
-                      >
-                        {joiningTeam ? 'Joining...' : 'Join Team'}
-                      </button>
+                      {!loadingJoinedTeams && joinedTeams.length > 0 ? (
+                        <ul className="max-h-56 space-y-1 overflow-y-auto">
+                          {joinedTeams.map((team) => (
+                            <li key={team.id}>
+                              <button
+                                type="button"
+                                onClick={() => handleTeamOpen(team)}
+                                className={`w-full rounded-3xl px-3 py-1 text-left text-[0.65rem] tracking-[0.16em] uppercase transition ${
+                                  activeTeam?.id === team.id
+                                    ? 'bg-cyan-500/20 text-cyan-300'
+                                    : 'text-slate-200 hover:bg-white/10'
+                                }`}
+                              >
+                                <span className="block truncate">{team.name}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+
+                      <div className="mt-1 border-t border-white/10 pt-2">
+                        <button
+                          type="button"
+                          onClick={handleBackToTeams}
+                          className="w-full rounded-3xl px-3 py-1 text-left text-[10px] tracking-[0.12em] text-slate-200 uppercase transition hover:bg-white/10"
+                        >
+                          Go to teams listing
+                        </button>
+                      </div>
                     </div>
-                  ) : activeTab === 'Home' ? (
-                    <HomeTab onQuestionClick={handleOpenQuestionFromHome} onOpenUserProfile={handleOpenUserProfile} />
-                  ) : activeTab === 'Questions' ? (
-                    <QuestionTab onOpenUserProfile={handleOpenUserProfile} />
-                  ) : activeTab === 'Articles' ? (
-                    <ArticlesTab onOpenUserProfile={handleOpenUserProfile} />
-                  ) : activeTab === 'Collections' ? (
-                    <CollectionsTab onOpenUserProfile={handleOpenUserProfile} />
-                  ) : activeTab === 'For You' ? (
-                    <ForYouTab
-                      onOpenReference={handleOpenNotificationReference}
-                      onOpenUserProfile={handleOpenUserProfile}
-                    />
-                  ) : activeTab === 'Bookmarks' ? (
-                    <BookmarksTab
-                      onOpenReference={handleOpenBookmarkReference}
-                      onOpenUserProfile={handleOpenUserProfile}
-                    />
-                  ) : activeTab === 'Tags' ? (
-                    <TagsTab />
-                  ) : activeTab === 'Users' ? (
-                    <UsersTab
-                      onOpenUserProfile={handleOpenUserProfile}
-                    />
-                  ) : (
-                    <CollectionsTab />
-                  )
                   ) : null}
-                </section>
-              </main>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative w-full sm:max-w-xl" ref={globalSearchRef}>
+              <input
+                type="text"
+                value={globalSearchQuery}
+                onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                onFocus={() => {
+                  if (globalSearchQuery.trim()) {
+                    setGlobalSearchOpen(true);
+                  }
+                }}
+                className="w-full rounded-full border border-white/15 bg-black/20 px-4 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-cyan-300/70 focus:ring-2 focus:ring-cyan-300/30"
+                placeholder="Search questions, articles, collections by title"
+              />
+
+              {globalSearchOpen && globalSearchQuery.trim() ? (
+                <div className="absolute left-0 right-0 top-full z-[95] mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-2 shadow-2xl shadow-black/50">
+                  {globalSearchLoading ? (
+                    <p className="px-2 py-2 text-xs text-slate-400">Searching...</p>
+                  ) : null}
+
+                  {!globalSearchLoading && globalSearchError ? (
+                    <p className="px-2 py-2 text-xs text-rose-300">{globalSearchError}</p>
+                  ) : null}
+
+                  {!globalSearchLoading && !globalSearchError && globalSearchResults.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-slate-400">No results found.</p>
+                  ) : null}
+
+                  {!globalSearchLoading && !globalSearchError && globalSearchResults.length > 0 ? (
+                    <ul className="max-h-72 space-y-1 overflow-y-auto">
+                      {globalSearchResults.map((item) => (
+                        <li key={`${item.type}-${item.id}`}>
+                          <div className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-white/10">
+                            <button
+                              type="button"
+                              onClick={() => handleSelectGlobalSearchResult(item)}
+                              className="w-full truncate text-left text-sm text-slate-100"
+                            >
+                              {item.title}
+                            </button>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                              {item.type} •{' '}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenUserProfile(item.user_id || item.user)}
+                                className="font-medium text-slate-300 transition hover:text-cyan-200 hover:underline"
+                              >
+                                {item.user_name}
+                              </button>
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleOpenSelfProfile}
+                className="max-w-[220px] truncate rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+              >
+                {user.name}
+                {typeof currentTeamReputation === 'number' ? ` • ${currentTeamReputation}` : ''}
+              </button>
+              <button
+                onClick={handleLogout}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/0 bg-white/10 text-white transition hover:bg-white/20"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                  <path d="M10 5H5v14h5" />
+                  <path d="M14 17l5-5-5-5" />
+                  <path d="M19 12H7" />
+                </svg>
+              </button>
             </div>
           </div>
-        ) : (
-          <TeamsPage onLogout={handleLogout} onTeamOpen={handleTeamOpen} />
-        )
-      ) : (
-        <Login onLoginSuccess={handleLoginSuccess} />
-      )}
-    </>
+        </nav>
+
+        <main className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <aside className="overflow-hidden rounded-3xl border border-white/0 bg-white/5 p-3 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
+            <p className="px-2 pb-3 text-xs tracking-[0.14em] text-slate-400 uppercase">Navigation</p>
+            <div className="space-y-2">
+              {TABS.filter((tab) => (tab === 'Admin Settings' ? isTeamAdmin : true)).map((tab) => {
+                const selected = navSelectedTab === tab;
+                return (
+                  <div key={tab}>
+                    <button
+                      onClick={() => handleTabChange(tab)}
+                      disabled={!isTeamMember}
+                      className={
+                        selected
+                          ? 'w-full rounded-md bg-cyan-300/15 px-4 py-1.5 text-left text-sm font-semibold text-cyan-100'
+                          : `w-full rounded-md px-4 py-1.5 text-left text-sm font-medium transition ${
+                              isTeamMember
+                                ? 'text-slate-200 hover:border-white/25 hover:bg-white/10'
+                                : 'cursor-not-allowed text-slate-500'
+                            }`
+                      }
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <span className={selected ? 'text-cyan-200' : 'text-slate-400'}>
+                          <TabIcon tab={tab} />
+                        </span>
+                        <span>{tab}</span>
+                        {tab === 'For You' && forYouUnreadCount > 0 ? (
+                          <span className="ml-auto rounded-full border border-cyan-300/0 bg-cyan-300/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-100">
+                            {forYouUnreadCount}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                    {tab === 'Home' ? <div className="mt-6 border-t border-white/35" /> : null}
+                    {tab === 'Collections' ? <div className="mt-6 border-t border-white/35" /> : null}
+                    {tab === 'Tags' ? <div className="mt-6 border-t border-white/35" /> : null}
+                    {tab === 'Users' ? <div className="mt-6 border-t border-white/35" /> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+
+          <section className="min-h-0 overflow-y-auto rounded-3xl border border-white/0 bg-white/5 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
+            {!isTeamMember ? (
+              <div className="mx-auto mt-10 max-w-xl rounded-3xl border border-white/0 bg-black/20 p-8 text-center">
+                <p className="text-xs tracking-[0.14em] text-slate-400 uppercase">Team Access</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Join {activeTeam.name}</h2>
+                <p className="mt-3 text-sm text-slate-300">
+                  You are not a member of this company yet. Join to access questions, tags, users, and other team content.
+                </p>
+
+                {joinTeamError ? (
+                  <p className="mt-4 rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-2 text-sm text-rose-200">
+                    {joinTeamError}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={handleJoinTeam}
+                  disabled={joiningTeam}
+                  className="mt-6 rounded-full bg-cyan-400 px-6 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {joiningTeam ? 'Joining...' : 'Join Team'}
+                </button>
+              </div>
+            ) : (
+              <Outlet
+                context={{
+                  onOpenQuestion: handleOpenQuestionFromHome,
+                  onOpenUserProfile: handleOpenUserProfile,
+                  onOpenNotificationReference: handleOpenNotificationReference,
+                  onOpenBookmarkReference: handleOpenBookmarkReference,
+                  onCloseProfile: handleCloseProfilePage,
+                }}
+              />
+            )}
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+export function HomeTabRoute() {
+  const { onOpenQuestion, onOpenUserProfile } = useOutletContext();
+  return <HomeTab onQuestionClick={onOpenQuestion} onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function QuestionTabRoute() {
+  const { onOpenUserProfile } = useOutletContext();
+  return <QuestionTab onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function ArticlesTabRoute() {
+  const { onOpenUserProfile } = useOutletContext();
+  return <ArticlesTab onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function CollectionsTabRoute() {
+  const { onOpenUserProfile } = useOutletContext();
+  return <CollectionsTab onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function ForYouTabRoute() {
+  const { onOpenNotificationReference, onOpenUserProfile } = useOutletContext();
+  return <ForYouTab onOpenReference={onOpenNotificationReference} onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function BookmarksTabRoute() {
+  const { onOpenBookmarkReference, onOpenUserProfile } = useOutletContext();
+  return <BookmarksTab onOpenReference={onOpenBookmarkReference} onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function TagsTabRoute() {
+  return <TagsTab />;
+}
+
+export function UsersTabRoute() {
+  const { onOpenUserProfile } = useOutletContext();
+  return <UsersTab onOpenUserProfile={onOpenUserProfile} />;
+}
+
+export function ProfileRoute() {
+  const location = useLocation();
+  const { onOpenUserProfile, onCloseProfile } = useOutletContext();
+  const profileFromSearch = getProfileUserIdFromSearch(location.search);
+  const profileUserId = profileFromSearch === 'me' ? null : profileFromSearch;
+
+  return (
+    <ProfilePage
+      profileUserId={profileUserId}
+      onOpenUserProfile={onOpenUserProfile}
+      onClose={onCloseProfile}
+    />
   );
 }
 

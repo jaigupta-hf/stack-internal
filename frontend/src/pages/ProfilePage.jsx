@@ -100,7 +100,6 @@ function ProfilePage({ onClose, profileUserId = null, onOpenUserProfile }) {
     const paramKey = referenceType === 'article' ? 'article' : referenceType === 'collection' ? 'collection' : 'question';
     navigate(`${tabPath}?${paramKey}=${referenceId}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
-    onClose();
   };
 
   const handleProfileFieldChange = (field, value) => {
