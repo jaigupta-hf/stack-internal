@@ -12,9 +12,9 @@ It handles:
 
 ## Main Files
 - `models.py`: `Post`, `Bookmark`, `PostFollow`.
-- `views.py`: primary entry module; also re-exports handlers from submodules.
-- `views_questions.py`: question read/search/update and moderation flows.
-- `viewsets.py`: router-backed article/question list/create/detail/update endpoints.
+- `views.py`: entry module for answer lifecycle, question search, and bookmark endpoints.
+- `views_questions.py`: question and global title search handlers.
+- `viewsets.py`: router-backed question/article list/create/detail/update plus question interaction and moderation actions.
 - `views_bookmarks.py`: bookmark and follows list endpoints.
 - `views_common.py`: shared helpers/constants.
 - `serializers.py`: large input/output schema surface.
@@ -31,6 +31,8 @@ Stored in `Post.type`:
 
 ## Endpoint Areas
 Base path: `/api/posts/`
+
+Question/article CRUD is implemented in DRF ViewSets. Compatibility aliases like `questions/list/` and `articles/list/` are preserved and routed to ViewSet actions.
 
 ### Creation and editing
 - `POST questions/`
@@ -85,7 +87,7 @@ Base path: `/api/posts/`
 - Counter fields (`answer_count`, `vote_count`, `bookmarks_count`, `views_count`) updated incrementally.
 
 ## Developer Guidance
-- Keep module split boundaries (questions/articles/bookmarks) intact.
+- Keep question/article CRUD and question actions in `viewsets.py`; keep answer/search/bookmark concerns in their focused modules.
 - Wrap multi-model writes in `transaction.atomic()`.
 - Reuse serializer contracts for stable response shape.
 - Preserve membership checks before any team-scoped read/write.
