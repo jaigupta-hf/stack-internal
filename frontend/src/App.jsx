@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import {
   Navigate,
   Outlet,
@@ -184,11 +184,12 @@ function App() {
       return;
     }
 
-    const searchParams = new URLSearchParams();
-    if (profileValue !== null && profileValue !== undefined && profileValue !== '') {
-      searchParams.set('profile', String(profileValue));
-    }
+    const profileSegment =
+      profileValue === null || profileValue === undefined || profileValue === '' || profileValue === 'me'
+        ? 'me'
+        : String(profileValue);
 
+    const searchParams = new URLSearchParams();
     if (fromTabSlug) {
       searchParams.set('from', fromTabSlug);
     }
@@ -196,7 +197,7 @@ function App() {
     const search = searchParams.toString();
     navigate(
       {
-        pathname: `/${activeTeam.url_endpoint}/profile`,
+        pathname: `/${activeTeam.url_endpoint}/users/${profileSegment}`,
         search: search ? `?${search}` : '',
       },
       { replace },
@@ -708,15 +709,17 @@ function App() {
                 </button>
               </div>
             ) : (
-              <Outlet
-                context={{
-                  onOpenQuestion: handleOpenQuestionFromHome,
-                  onOpenUserProfile: handleOpenUserProfile,
-                  onOpenNotificationReference: handleOpenNotificationReference,
-                  onOpenBookmarkReference: handleOpenBookmarkReference,
-                  onCloseProfile: handleCloseProfilePage,
-                }}
-              />
+              <Suspense fallback={<p className="text-slate-300">Loading section...</p>}>
+                <Outlet
+                  context={{
+                    onOpenQuestion: handleOpenQuestionFromHome,
+                    onOpenUserProfile: handleOpenUserProfile,
+                    onOpenNotificationReference: handleOpenNotificationReference,
+                    onOpenBookmarkReference: handleOpenBookmarkReference,
+                    onCloseProfile: handleCloseProfilePage,
+                  }}
+                />
+              </Suspense>
             )}
           </section>
         </main>

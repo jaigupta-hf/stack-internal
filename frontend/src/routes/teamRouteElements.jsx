@@ -1,5 +1,5 @@
-import { Suspense, lazy } from 'react';
-import { useLocation, useOutletContext } from 'react-router-dom';
+import { lazy } from 'react';
+import { Navigate, useLocation, useOutletContext, useParams } from 'react-router-dom';
 
 const HomeTab = lazy(() => import('../pages/navigationTabs/HomeTab'));
 const QuestionTab = lazy(() => import('../pages/navigationTabs/QuestionTab'));
@@ -11,119 +11,82 @@ const TagsTab = lazy(() => import('../pages/navigationTabs/TagsTab'));
 const UsersTab = lazy(() => import('../pages/navigationTabs/UsersTab'));
 const ProfilePage = lazy(() => import('../pages/ProfilePage'));
 
-function RouteSuspense({ children }) {
-  return (
-    <Suspense fallback={<p className="text-slate-300">Loading section...</p>}>
-      {children}
-    </Suspense>
-  );
-}
-
-const getProfileUserIdFromSearch = (search) => {
-  const value = new URLSearchParams(search).get('profile');
-  if (!value) {
+const parseProfileUserId = (userId) => {
+  if (!userId || userId === 'me') {
     return null;
   }
 
-  if (value === 'me') {
-    return 'me';
-  }
-
-  const parsed = Number(value);
+  const parsed = Number(userId);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
+
+export function LegacyProfileRoute() {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const profileValue = searchParams.get('profile') || 'me';
+  const from = searchParams.get('from');
+  const normalizedProfileValue = profileValue === 'me' ? 'me' : String(Number(profileValue) || 'me');
+  const fromQuery = from ? `?from=${encodeURIComponent(from)}` : '';
+
+  return <Navigate to={`../users/${normalizedProfileValue}${fromQuery}`} replace />;
+}
 
 export function HomeTabRoute() {
   const { onOpenQuestion, onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <HomeTab onQuestionClick={onOpenQuestion} onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <HomeTab onQuestionClick={onOpenQuestion} onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function QuestionTabRoute() {
   const { onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <QuestionTab onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <QuestionTab onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function ArticlesTabRoute() {
   const { onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <ArticlesTab onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <ArticlesTab onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function CollectionsTabRoute() {
   const { onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <CollectionsTab onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <CollectionsTab onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function ForYouTabRoute() {
   const { onOpenNotificationReference, onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <ForYouTab onOpenReference={onOpenNotificationReference} onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <ForYouTab onOpenReference={onOpenNotificationReference} onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function BookmarksTabRoute() {
   const { onOpenBookmarkReference, onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <BookmarksTab onOpenReference={onOpenBookmarkReference} onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <BookmarksTab onOpenReference={onOpenBookmarkReference} onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function TagsTabRoute() {
-  return (
-    <RouteSuspense>
-      <TagsTab />
-    </RouteSuspense>
-  );
+  return <TagsTab />;
 }
 
 export function UsersTabRoute() {
   const { onOpenUserProfile } = useOutletContext();
 
-  return (
-    <RouteSuspense>
-      <UsersTab onOpenUserProfile={onOpenUserProfile} />
-    </RouteSuspense>
-  );
+  return <UsersTab onOpenUserProfile={onOpenUserProfile} />;
 }
 
 export function ProfileRoute() {
-  const location = useLocation();
+  const { userId } = useParams();
   const { onOpenUserProfile, onCloseProfile } = useOutletContext();
-  const profileFromSearch = getProfileUserIdFromSearch(location.search);
-  const profileUserId = profileFromSearch === 'me' ? null : profileFromSearch;
+  const profileUserId = parseProfileUserId(userId);
 
   return (
-    <RouteSuspense>
-      <ProfilePage
-        profileUserId={profileUserId}
-        onOpenUserProfile={onOpenUserProfile}
-        onClose={onCloseProfile}
-      />
-    </RouteSuspense>
+    <ProfilePage
+      profileUserId={profileUserId}
+      onOpenUserProfile={onOpenUserProfile}
+      onClose={onCloseProfile}
+    />
   );
 }
