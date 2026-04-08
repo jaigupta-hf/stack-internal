@@ -794,7 +794,11 @@ class QuestionDetailModelSerializer(serializers.ModelSerializer):
         return self.context.get('is_following', False)
 
     def get_followers_count(self, obj):
-        return self.context.get('followers_count', 0)
+        context_followers_count = self.context.get('followers_count')
+        if context_followers_count is not None:
+            return context_followers_count
+
+        return getattr(obj, 'followers_count', 0)
 
     def get_is_bookmarked(self, obj):
         return self.context.get('is_bookmarked', False)

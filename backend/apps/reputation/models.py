@@ -53,6 +53,10 @@ class Bounty(models.Model):
     class Meta:
         db_table = 'bounty'
         ordering = ['-start_time']
+        indexes = [
+            models.Index(fields=['post', '-start_time'], name='bnty_post_start_idx'),
+            models.Index(fields=['post', 'status', '-start_time'], name='bnty_post_status_start_idx'),
+        ]
 
     def __str__(self):
         return f'Bounty #{self.id} ({self.status})'

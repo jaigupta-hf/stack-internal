@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/api';
 import { formatProfileTime } from '../utils/dateTime';
 import PostsTab from './profileTabs/PostsTab';
@@ -31,6 +32,7 @@ const PROFILE_TAB_COMPONENTS = {
 };
 
 function ProfilePage({ onClose, profileUserId = null, onOpenUserProfile }) {
+  const navigate = useNavigate();
   const { activeTeam } = useTeam();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,9 +98,8 @@ function ProfilePage({ onClose, profileUserId = null, onOpenUserProfile }) {
         ? `${basePath}/collections`
         : `${basePath}/questions`;
     const paramKey = referenceType === 'article' ? 'article' : referenceType === 'collection' ? 'collection' : 'question';
-    window.history.pushState({}, '', `${tabPath}?${paramKey}=${referenceId}`);
+    navigate(`${tabPath}?${paramKey}=${referenceId}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
-    onClose();
   };
 
   const handleProfileFieldChange = (field, value) => {
