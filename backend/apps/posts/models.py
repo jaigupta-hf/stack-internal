@@ -53,6 +53,10 @@ class Post(models.Model):
 		db_table = 'posts'
 		indexes = [
 			models.Index(
+				fields=['team', 'type', 'created_at'],
+				name='pst_team_type_created_idx',
+			),
+			models.Index(
 				fields=['team', 'type', 'delete_flag', 'created_at'],
 				name='pst_team_type_del_created_idx',
 			),
