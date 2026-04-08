@@ -3,7 +3,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from teams.permissions import ensure_team_membership
+from teams.permissions import IsTeamMember
 from teams.utils import get_team_member_name
 from users.models import User
 from apps.collections.models import Collection
@@ -47,8 +47,37 @@ def _notify_question_followers(*, question, triggered_by, reason):
 class CommentViewSet(viewsets.GenericViewSet):
 	"""CBV endpoints for creating, updating, and deleting comments."""
 
-	permission_classes = [IsAuthenticated]
+	permission_classes = [IsAuthenticated, IsTeamMember]
 	http_method_names = ['post', 'patch', 'delete', 'head', 'options']
+
+	def get_team_id_for_permission(self, request):
+		if self.action == 'create':
+			parent_comment_id = request.data.get('parent_comment_id')
+			post_id = request.data.get('post_id')
+			collection_id = request.data.get('collection_id')
+
+			if parent_comment_id not in (None, ''):
+				team_data = Comment.objects.filter(id=parent_comment_id).values('post__team_id', 'collection__team_id').first()
+				if not team_data:
+					return None
+				return team_data.get('post__team_id') or team_data.get('collection__team_id')
+
+			if post_id not in (None, ''):
+				return Post.objects.filter(id=post_id, delete_flag=False).values_list('team_id', flat=True).first()
+
+			if collection_id not in (None, ''):
+				return Collection.objects.filter(id=collection_id).values_list('team_id', flat=True).first()
+
+			return None
+
+		lookup_pk = self.kwargs.get('pk')
+		if lookup_pk in (None, ''):
+			return None
+
+		team_data = Comment.objects.filter(id=lookup_pk).values('post__team_id', 'collection__team_id').first()
+		if not team_data:
+			return None
+		return team_data.get('post__team_id') or team_data.get('collection__team_id')
 
 	def _get_comment_for_detail_or_response(self, comment_id):
 		try:
@@ -109,10 +138,6 @@ class CommentViewSet(viewsets.GenericViewSet):
 				except Collection.DoesNotExist:
 					return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
 				target_team = collection.team
-
-		membership_error = ensure_team_membership(team=target_team, user=user)
-		if membership_error:
-			return membership_error
 
 		comment = Comment.objects.create(
 			post=post,
@@ -179,10 +204,6 @@ class CommentViewSet(viewsets.GenericViewSet):
 
 		target_team = comment.post.team if comment.post_id else comment.collection.team
 
-		membership_error = ensure_team_membership(team=target_team, user=user)
-		if membership_error:
-			return membership_error
-
 		if comment.user_id != user.id:
 			return Response({'error': 'Only the author can modify this comment'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -219,10 +240,6 @@ class CommentViewSet(viewsets.GenericViewSet):
 			return comment_error
 
 		target_team = comment.post.team if comment.post_id else comment.collection.team
-
-		membership_error = ensure_team_membership(team=target_team, user=user)
-		if membership_error:
-			return membership_error
 
 		if comment.user_id != user.id:
 			return Response({'error': 'Only the author can modify this comment'}, status=status.HTTP_403_FORBIDDEN)

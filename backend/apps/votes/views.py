@@ -8,7 +8,7 @@ from rest_framework.response import Response
 
 from comments.models import Comment
 from posts.models import Post
-from teams.permissions import ensure_team_membership
+from teams.permissions import IsTeamMember
 from reputation.api import apply_reputation_change
 from reputation.constants import (
     DOWNVOTE_RECEIVER_LOSS,
@@ -51,15 +51,11 @@ def _resolve_target(post_id, comment_id):
         return None, None, None, 'Comment not found.'
 
 
-# Resolve a target and enforce same-team access before running vote mutations.
-def _resolve_accessible_target(*, user, post_id, comment_id):
+# Resolve a target and return standardized validation responses before running vote mutations.
+def _resolve_accessible_target(*, post_id, comment_id):
     post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
     if target_error:
         return None, None, None, Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
-
-    membership_error = ensure_team_membership(team=target_team, user=user)
-    if membership_error:
-        return None, None, None, membership_error
 
     return post, comment, target_team, None
 
@@ -158,8 +154,23 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
 class VoteViewSet(viewsets.GenericViewSet):
     """CBV endpoints for submitting and removing votes."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTeamMember]
     http_method_names = ['post', 'head', 'options']
+
+    def get_team_id_for_permission(self, request):
+        post_id = request.data.get('post_id')
+        comment_id = request.data.get('comment_id')
+
+        if bool(post_id) == bool(comment_id):
+            return None
+
+        if post_id not in (None, ''):
+            return Post.objects.filter(id=post_id, delete_flag=False).values_list('team_id', flat=True).first()
+
+        comment_team = Comment.objects.filter(id=comment_id).values('post__team_id', 'collection__team_id').first()
+        if not comment_team:
+            return None
+        return comment_team.get('post__team_id') or comment_team.get('collection__team_id')
 
     def create(self, request, *args, **kwargs):
         user = request.user
@@ -174,7 +185,6 @@ class VoteViewSet(viewsets.GenericViewSet):
         vote_value = validated['vote']
 
         post, comment, target_team, resolve_error = _resolve_accessible_target(
-            user=user,
             post_id=post_id,
             comment_id=comment_id,
         )
@@ -234,7 +244,6 @@ class VoteViewSet(viewsets.GenericViewSet):
         comment_id = validated.get('comment_id')
 
         post, comment, target_team, resolve_error = _resolve_accessible_target(
-            user=user,
             post_id=post_id,
             comment_id=comment_id,
         )

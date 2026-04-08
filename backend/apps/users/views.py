@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from posts.constants import ARTICLE_TYPE_VALUES, POST_TYPE_TO_KEY, POST_TYPE_TO_LABEL
 from posts.models import Post
-from teams.permissions import ensure_team_membership, get_team_membership
+from teams.permissions import IsTeamMember, get_team_membership
 
 from .models import User
 from .serializers import (
@@ -103,7 +103,12 @@ class LogoutView(APIView):
 class ProfileView(APIView):
     """Read or partially update a team-scoped user profile."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTeamMember]
+
+    def get_team_id_for_permission(self, request):
+        if request.method.upper() != 'GET':
+            return None
+        return request.query_params.get('team_id')
 
     def patch(self, request, *args, **kwargs):
         user = request.user
@@ -139,10 +144,6 @@ class ProfileView(APIView):
         team_id = request.query_params.get('team_id')
         if not team_id:
             return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        membership_error = ensure_team_membership(team_id=team_id, user=user)
-        if membership_error:
-            return membership_error
 
         target_user = user
         user_id = request.query_params.get('user_id')

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from apps.pagination import parse_pagination_params, paginate_queryset
 
 from .models import Team, TeamUser
-from .permissions import ensure_team_admin, ensure_team_membership, get_team_membership
+from .permissions import IsTeamAdmin, IsTeamMember, get_team_membership
 from .serializers import (
     TeamBySlugOutputSerializer,
     TeamJoinOutputSerializer,
@@ -24,21 +24,6 @@ def _get_team_or_404(team_id):
         return Team.objects.get(id=team_id), None
     except Team.DoesNotExist:
         return None, Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-# Ensure the acting user is an admin in the target team before role-management actions.
-def _get_admin_context_or_response(*, team_id, user):
-    team, team_error = _get_team_or_404(team_id)
-    if team_error:
-        return None, None, team_error
-
-    acting_membership = get_team_membership(team=team, user=user)
-    admin_error = ensure_team_admin(membership=acting_membership)
-    if admin_error:
-        return None, None, admin_error
-
-    return team, acting_membership, None
-
 
 # Load the target team membership record or return a uniform not-found response.
 def _get_target_membership_or_404(*, team, user_id, select_related_user=False):
@@ -70,22 +55,22 @@ class TeamsListCreateView(generics.ListCreateAPIView):
 
     def list(self, request, *args, **kwargs):
         memberships = self.get_queryset()
-        payload = [
-            {
-                'id': membership.team.id,
-                'name': membership.team.name,
-                'url_endpoint': membership.team.url_endpoint,
-                'is_admin': membership.is_admin,
-            }
-            for membership in memberships
-        ]
-        output = TeamListItemOutputSerializer(data=payload, many=True)
-        output.is_valid(raise_exception=True)
+        output = TeamListItemOutputSerializer(memberships, many=True)
         return Response(output.data, status=status.HTTP_200_OK)
 
     def perform_create(self, serializer):
         team = serializer.save()
         TeamUser.objects.create(team=team, user=self.request.user, is_admin=True)
+
+
+class TeamScopedAPIView(APIView):
+    """Shared team-id resolution for class-based permission checks."""
+
+    def get_team_id_for_permission(self, request):
+        team_id = self.kwargs.get('team_id')
+        if team_id in (None, ''):
+            return None
+        return team_id if Team.objects.filter(id=team_id).exists() else None
 
 
 class TeamBySlugView(APIView):
@@ -118,39 +103,19 @@ class TeamJoinView(APIView):
 
         membership = get_team_membership(team=team, user=user)
         if membership:
-            output = TeamJoinOutputSerializer(
-                data={
-                    'id': team.id,
-                    'name': team.name,
-                    'url_endpoint': team.url_endpoint,
-                    'is_member': True,
-                    'is_admin': membership.is_admin,
-                    'already_member': True,
-                }
-            )
-            output.is_valid(raise_exception=True)
+            output = TeamJoinOutputSerializer(team, context={'membership': membership, 'already_member': True})
             return Response(output.data, status=status.HTTP_200_OK)
 
-        TeamUser.objects.create(team=team, user=user, is_admin=False)
+        new_membership = TeamUser.objects.create(team=team, user=user, is_admin=False)
 
-        output = TeamJoinOutputSerializer(
-            data={
-                'id': team.id,
-                'name': team.name,
-                'url_endpoint': team.url_endpoint,
-                'is_member': True,
-                'is_admin': False,
-                'already_member': False,
-            }
-        )
-        output.is_valid(raise_exception=True)
+        output = TeamJoinOutputSerializer(team, context={'membership': new_membership, 'already_member': False})
         return Response(output.data, status=status.HTTP_201_CREATED)
 
 
-class TeamUsersView(APIView):
+class TeamUsersView(TeamScopedAPIView):
     """Return paginated member list for a team."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTeamMember]
 
     def get(self, request, team_id, *args, **kwargs):
         user = request.user
@@ -159,10 +124,6 @@ class TeamUsersView(APIView):
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
             return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        membership_error = ensure_team_membership(team=team, user=user)
-        if membership_error:
-            return membership_error
 
         page, page_size = parse_pagination_params(request)
 
@@ -173,33 +134,19 @@ class TeamUsersView(APIView):
         )
         members, pagination = paginate_queryset(members, page=page, page_size=page_size)
 
-        data = [
-            {
-                'id': member.user.id,
-                'name': member.user.name,
-                'email': member.user.email,
-                'is_admin': member.is_admin,
-                'joined_at': member.joined_at,
-            }
-            for member in members
-        ]
-
-        output = TeamUsersListOutputSerializer(data={'items': data, 'pagination': pagination})
-        output.is_valid(raise_exception=True)
+        output = TeamUsersListOutputSerializer({'items': members, 'pagination': pagination})
         return Response(output.data, status=status.HTTP_200_OK)
 
 
-class TeamUserMakeAdminView(APIView):
+class TeamUserMakeAdminView(TeamScopedAPIView):
     """Promote a team member to admin."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTeamAdmin]
 
     def post(self, request, team_id, user_id, *args, **kwargs):
-        user = request.user
-
-        team, _, context_error = _get_admin_context_or_response(team_id=team_id, user=user)
-        if context_error:
-            return context_error
+        team, team_error = _get_team_or_404(team_id)
+        if team_error:
+            return team_error
 
         target_membership, target_error = _get_target_membership_or_404(
             team=team,
@@ -213,28 +160,19 @@ class TeamUserMakeAdminView(APIView):
             target_membership.is_admin = True
             target_membership.save(update_fields=['is_admin'])
 
-        output = TeamUserRoleOutputSerializer(
-            data={
-                'id': target_membership.user_id,
-                'name': target_membership.user.name,
-                'is_admin': True,
-            }
-        )
-        output.is_valid(raise_exception=True)
+        output = TeamUserRoleOutputSerializer(target_membership)
         return Response(output.data, status=status.HTTP_200_OK)
 
 
-class TeamUserMakeMemberView(APIView):
+class TeamUserMakeMemberView(TeamScopedAPIView):
     """Demote an admin back to member while preserving at least one admin."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTeamAdmin]
 
     def post(self, request, team_id, user_id, *args, **kwargs):
-        user = request.user
-
-        team, _, context_error = _get_admin_context_or_response(team_id=team_id, user=user)
-        if context_error:
-            return context_error
+        team, team_error = _get_team_or_404(team_id)
+        if team_error:
+            return team_error
 
         target_membership, target_error = _get_target_membership_or_404(
             team=team,
@@ -252,28 +190,21 @@ class TeamUserMakeMemberView(APIView):
             target_membership.is_admin = False
             target_membership.save(update_fields=['is_admin'])
 
-        output = TeamUserRoleOutputSerializer(
-            data={
-                'id': target_membership.user_id,
-                'name': target_membership.user.name,
-                'is_admin': False,
-            }
-        )
-        output.is_valid(raise_exception=True)
+        output = TeamUserRoleOutputSerializer(target_membership)
         return Response(output.data, status=status.HTTP_200_OK)
 
 
-class TeamUserRemoveView(APIView):
+class TeamUserRemoveView(TeamScopedAPIView):
     """Remove a member from a team with admin and safety checks."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTeamAdmin]
 
     def post(self, request, team_id, user_id, *args, **kwargs):
         user = request.user
 
-        team, _, context_error = _get_admin_context_or_response(team_id=team_id, user=user)
-        if context_error:
-            return context_error
+        team, team_error = _get_team_or_404(team_id)
+        if team_error:
+            return team_error
 
         if int(user_id) == user.id:
             return Response({'error': 'You cannot remove yourself from the team'}, status=status.HTTP_400_BAD_REQUEST)
