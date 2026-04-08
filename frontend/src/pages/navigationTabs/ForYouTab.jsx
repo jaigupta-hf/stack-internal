@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { notificationService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import { formatFeedTime } from '../../utils/dateTime';
+import { useTeam } from '../../context/TeamContext';
 
 const NOTIFICATION_REASON_ACTION_TEXT = {
   answer_posted_on_your_question: 'answered your question',
@@ -22,7 +23,8 @@ const NOTIFICATION_REASON_ACTION_TEXT = {
 const reasonToActionText = (item) =>
   NOTIFICATION_REASON_ACTION_TEXT[item.reason] || 'interacted with your post';
 
-function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChange }) {
+function ForYouTab({ onOpenReference, onOpenUserProfile }) {
+  const { activeTeam, setForYouUnreadCount } = useTeam();
   const [items, setItems] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -35,11 +37,11 @@ function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChan
     setError('');
 
     try {
-      const data = await notificationService.list(team.id);
+      const data = await notificationService.list(activeTeam.id);
       setItems(data.items || []);
       const nextUnreadCount = Number(data.unread_count || 0);
       setUnreadCount(nextUnreadCount);
-      onUnreadCountChange?.(nextUnreadCount);
+      setForYouUnreadCount(nextUnreadCount);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to load your feed.');
     } finally {
@@ -49,7 +51,7 @@ function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChan
 
   useEffect(() => {
     loadNotifications();
-  }, [team.id]);
+  }, [activeTeam?.id]);
 
   const unreadIds = useMemo(() => items.filter((item) => !item.is_read).map((item) => item.id), [items]);
 
@@ -59,7 +61,7 @@ function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChan
       setItems((prev) => prev.map((item) => (item.id === notificationId ? { ...item, is_read: true } : item)));
       setUnreadCount((prev) => {
         const next = Math.max(prev - 1, 0);
-        onUnreadCountChange?.(next);
+        setForYouUnreadCount(next);
         return next;
       });
     } catch (err) {
@@ -73,7 +75,7 @@ function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChan
       setItems((prev) => prev.map((item) => (item.id === notificationId ? { ...item, is_read: false } : item)));
       setUnreadCount((prev) => {
         const next = prev + 1;
-        onUnreadCountChange?.(next);
+        setForYouUnreadCount(next);
         return next;
       });
     } catch (err) {
@@ -88,10 +90,10 @@ function ForYouTab({ team, onOpenReference, onOpenUserProfile, onUnreadCountChan
 
     try {
       setMarkingAllRead(true);
-      await notificationService.markAllRead(team.id);
+      await notificationService.markAllRead(activeTeam.id);
       setItems((prev) => prev.map((item) => ({ ...item, is_read: true })));
       setUnreadCount(0);
-      onUnreadCountChange?.(0);
+      setForYouUnreadCount(0);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to mark all notifications as read.');
     } finally {

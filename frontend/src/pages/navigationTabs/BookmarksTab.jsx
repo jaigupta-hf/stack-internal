@@ -3,12 +3,14 @@ import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import { formatBookmarkTime } from '../../utils/dateTime';
 import useTeamResource from '../../hooks/useTeamResource';
+import { useTeam } from '../../context/TeamContext';
 
-function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
+function BookmarksTab({ onOpenReference, onOpenUserProfile }) {
+  const { activeTeam } = useTeam();
   const loadBookmarks = useCallback(async () => {
-    const data = await postService.listBookmarks(team?.id);
+    const data = await postService.listBookmarks(activeTeam?.id);
     return Array.isArray(data) ? data : [];
-  }, [team?.id]);
+  }, [activeTeam?.id]);
 
   const {
     data: bookmarks,
@@ -17,11 +19,11 @@ function BookmarksTab({ team, onOpenReference, onOpenUserProfile }) {
     error,
     setError,
   } = useTeamResource({
-    enabled: Boolean(team?.id),
+    enabled: Boolean(activeTeam?.id),
     initialData: [],
     loadResource: loadBookmarks,
     fallbackErrorMessage: 'Failed to load bookmarks.',
-    dependencies: [team?.id],
+    dependencies: [activeTeam?.id],
   });
 
   const handleRemoveBookmark = async (item) => {

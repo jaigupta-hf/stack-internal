@@ -1,12 +1,14 @@
 import useCollectionsTabController from '../../hooks/useCollectionsTabController';
 import CollectionsTabView from '../../components/CollectionsTabView';
+import { useTeam } from '../../context/TeamContext';
 
-function CollectionsTab({ team, isTeamAdmin, onOpenUserProfile }) {
-  const controller = useCollectionsTabController({ team });
+function CollectionsTab({ onOpenUserProfile }) {
+  const { activeTeam, isTeamAdmin } = useTeam();
+  const controller = useCollectionsTabController({ team: activeTeam });
 
   return (
     <CollectionsTabView
-      team={team}
+      team={activeTeam}
       isTeamAdmin={isTeamAdmin}
       onOpenUserProfile={onOpenUserProfile}
       controller={controller}

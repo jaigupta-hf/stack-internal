@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import './App.css';
 
 import Login from './pages/LoginPage';
@@ -14,7 +14,10 @@ import BookmarksTab from './pages/navigationTabs/BookmarksTab';
 import TagsTab from './pages/navigationTabs/TagsTab';
 import UsersTab from './pages/navigationTabs/UsersTab';
 
-import { authService, teamService, postService, notificationService } from './services/api';
+import { teamService } from './services/api';
+import { useAuth } from './context/AuthContext';
+import { useTeam } from './context/TeamContext';
+import { useUI } from './context/UIContext';
 
 const TABS = ['Home', 'Questions', 'Articles', 'Collections', 'For You', 'Bookmarks', 'Tags', 'Users', 'Admin Settings'];
 const TAB_SLUGS = {
@@ -132,26 +135,44 @@ const TabIcon = ({ tab }) => {
 };
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTeam, setActiveTeam] = useState(null);
-  const [activeTab, setActiveTab] = useState('Home');
-  const [isTeamMember, setIsTeamMember] = useState(true);
-  const [isTeamAdmin, setIsTeamAdmin] = useState(false);
-  const [joiningTeam, setJoiningTeam] = useState(false);
-  const [joinTeamError, setJoinTeamError] = useState('');
-  const [joinedTeams, setJoinedTeams] = useState([]);
-  const [loadingJoinedTeams, setLoadingJoinedTeams] = useState(false);
-  const [teamSwitcherOpen, setTeamSwitcherOpen] = useState(false);
-  const [showProfilePage, setShowProfilePage] = useState(false);
-  const [profileUserId, setProfileUserId] = useState(null);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
-  const [globalSearchResults, setGlobalSearchResults] = useState([]);
-  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
-  const [globalSearchError, setGlobalSearchError] = useState('');
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const [forYouUnreadCount, setForYouUnreadCount] = useState(0);
-  const [currentTeamReputation, setCurrentTeamReputation] = useState(null);
+  const { user, loading, setUser } = useAuth();
+  const {
+    activeTeam,
+    setActiveTeam,
+    activeTab,
+    setActiveTab,
+    isTeamMember,
+    setIsTeamMember,
+    isTeamAdmin,
+    setIsTeamAdmin,
+    joiningTeam,
+    setJoiningTeam,
+    joinTeamError,
+    setJoinTeamError,
+    joinedTeams,
+    setJoinedTeams,
+    loadingJoinedTeams,
+    forYouUnreadCount,
+    setForYouUnreadCount,
+    currentTeamReputation,
+  } = useTeam();
+  const {
+    teamSwitcherOpen,
+    setTeamSwitcherOpen,
+    showProfilePage,
+    setShowProfilePage,
+    profileUserId,
+    setProfileUserId,
+    globalSearchQuery,
+    setGlobalSearchQuery,
+    globalSearchResults,
+    setGlobalSearchResults,
+    globalSearchLoading,
+    globalSearchError,
+    setGlobalSearchError,
+    globalSearchOpen,
+    setGlobalSearchOpen,
+  } = useUI();
   const teamSwitcherRef = useRef(null);
   const globalSearchRef = useRef(null);
 
@@ -213,65 +234,6 @@ function App() {
   };
 
   useEffect(() => {
-    // Check if user is already logged in (has valid JWT token)
-    const checkAuth = async () => {
-      if (authService.isAuthenticated()) {
-        try {
-          const userData = await authService.getCurrentUser();
-          setUser(userData);
-        } catch {
-          console.log('Session expired or invalid token');
-          // Token is invalid, it will be cleared by the interceptor
-        }
-      }
-      setLoading(false);
-    };
-
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    const loadJoinedTeams = async () => {
-      if (!user) {
-        setJoinedTeams([]);
-        return;
-      }
-
-      setLoadingJoinedTeams(true);
-      try {
-        const teams = await teamService.listTeams();
-        const list = teams || [];
-        const hasIsMemberFlag = list.some((team) => Object.prototype.hasOwnProperty.call(team, 'is_member'));
-        setJoinedTeams(hasIsMemberFlag ? list.filter((team) => team.is_member) : list);
-      } catch {
-        setJoinedTeams((prev) => prev);
-      } finally {
-        setLoadingJoinedTeams(false);
-      }
-    };
-
-    loadJoinedTeams();
-  }, [user, activeTeam?.id]);
-
-  useEffect(() => {
-    const loadCurrentTeamReputation = async () => {
-      if (!user || !activeTeam?.id || !isTeamMember) {
-        setCurrentTeamReputation(null);
-        return;
-      }
-
-      try {
-        const profile = await authService.getProfile(activeTeam.id);
-        setCurrentTeamReputation(Number(profile?.reputation ?? null));
-      } catch {
-        setCurrentTeamReputation(null);
-      }
-    };
-
-    loadCurrentTeamReputation();
-  }, [user, activeTeam?.id, isTeamMember]);
-
-  useEffect(() => {
     if (!teamSwitcherOpen) {
       return;
     }
@@ -300,52 +262,6 @@ function App() {
     window.addEventListener('mousedown', handleOutsideClick);
     return () => window.removeEventListener('mousedown', handleOutsideClick);
   }, [globalSearchOpen]);
-
-  useEffect(() => {
-    const query = globalSearchQuery.trim();
-    if (!activeTeam?.id || !query) {
-      setGlobalSearchResults([]);
-      setGlobalSearchLoading(false);
-      setGlobalSearchError('');
-      return;
-    }
-
-    const debounce = setTimeout(async () => {
-      setGlobalSearchLoading(true);
-      setGlobalSearchError('');
-
-      try {
-        const data = await postService.searchGlobalTitles(activeTeam.id, query);
-        setGlobalSearchResults(data || []);
-        setGlobalSearchOpen(true);
-      } catch (err) {
-        setGlobalSearchResults([]);
-        setGlobalSearchError(err.response?.data?.error || 'Failed to search.');
-      } finally {
-        setGlobalSearchLoading(false);
-      }
-    }, 250);
-
-    return () => clearTimeout(debounce);
-  }, [activeTeam?.id, globalSearchQuery]);
-
-  useEffect(() => {
-    const loadForYouUnreadCount = async () => {
-      if (!activeTeam?.id || !isTeamMember) {
-        setForYouUnreadCount(0);
-        return;
-      }
-
-      try {
-        const data = await notificationService.list(activeTeam.id);
-        setForYouUnreadCount(Number(data.unread_count || 0));
-      } catch {
-        setForYouUnreadCount(0);
-      }
-    };
-
-    loadForYouUnreadCount();
-  }, [activeTeam?.id, isTeamMember]);
 
   useEffect(() => {
     const openTeamFromUrl = async () => {
@@ -843,7 +759,6 @@ function App() {
                 <section className="min-h-0 overflow-y-auto rounded-3xl border border-white/0 bg-white/5 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl sm:p-5">
                   {showProfilePage ? (
                     <ProfilePage
-                      team={activeTeam}
                       profileUserId={profileUserId}
                       onOpenUserProfile={handleOpenUserProfile}
                       onClose={handleCloseProfilePage}
@@ -875,33 +790,27 @@ function App() {
                       </button>
                     </div>
                   ) : activeTab === 'Home' ? (
-                    <HomeTab team={activeTeam} onQuestionClick={handleOpenQuestionFromHome} onOpenUserProfile={handleOpenUserProfile} />
+                    <HomeTab onQuestionClick={handleOpenQuestionFromHome} onOpenUserProfile={handleOpenUserProfile} />
                   ) : activeTab === 'Questions' ? (
-                    <QuestionTab team={activeTeam} onOpenUserProfile={handleOpenUserProfile} />
+                    <QuestionTab onOpenUserProfile={handleOpenUserProfile} />
                   ) : activeTab === 'Articles' ? (
-                    <ArticlesTab team={activeTeam} onOpenUserProfile={handleOpenUserProfile} />
+                    <ArticlesTab onOpenUserProfile={handleOpenUserProfile} />
                   ) : activeTab === 'Collections' ? (
-                    <CollectionsTab team={activeTeam} isTeamAdmin={isTeamAdmin} onOpenUserProfile={handleOpenUserProfile} />
+                    <CollectionsTab onOpenUserProfile={handleOpenUserProfile} />
                   ) : activeTab === 'For You' ? (
                     <ForYouTab
-                      team={activeTeam}
                       onOpenReference={handleOpenNotificationReference}
                       onOpenUserProfile={handleOpenUserProfile}
-                      onUnreadCountChange={setForYouUnreadCount}
                     />
                   ) : activeTab === 'Bookmarks' ? (
                     <BookmarksTab
-                      team={activeTeam}
                       onOpenReference={handleOpenBookmarkReference}
                       onOpenUserProfile={handleOpenUserProfile}
                     />
                   ) : activeTab === 'Tags' ? (
-                    <TagsTab team={activeTeam} />
+                    <TagsTab />
                   ) : activeTab === 'Users' ? (
                     <UsersTab
-                      team={activeTeam}
-                      canManageUsers={isTeamAdmin}
-                      currentUserId={user?.id}
                       onOpenUserProfile={handleOpenUserProfile}
                     />
                   ) : (
@@ -913,7 +822,7 @@ function App() {
             </div>
           </div>
         ) : (
-          <TeamsPage user={user} onLogout={handleLogout} onTeamOpen={handleTeamOpen} />
+          <TeamsPage onLogout={handleLogout} onTeamOpen={handleTeamOpen} />
         )
       ) : (
         <Login onLoginSuccess={handleLoginSuccess} />
