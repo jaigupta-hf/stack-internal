@@ -3,6 +3,8 @@ import { teamService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import useFilteredList from '../../hooks/useFilteredList';
 import useTeamResource from '../../hooks/useTeamResource';
+import { useTeam } from '../../context/TeamContext';
+import { useAuth } from '../../context/AuthContext';
 
 const DEFAULT_USERS_PAGE_SIZE = 24;
 const USERS_PAGE_SIZE_OPTIONS = [12, 24, 48];
@@ -27,27 +29,29 @@ const getVisiblePageNumbers = (pagination, windowSize = 5) => {
   return pages;
 };
 
-function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUserId = null }) {
+function UsersTab({ onOpenUserProfile }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [menuOpenUserId, setMenuOpenUserId] = useState(null);
   const [actionLoading, setActionLoading] = useState('');
   const [usersPage, setUsersPage] = useState(1);
   const [usersPageSize, setUsersPageSize] = useState(DEFAULT_USERS_PAGE_SIZE);
   const [usersPagination, setUsersPagination] = useState(null);
+  const { activeTeam, isTeamAdmin } = useTeam();
+  const { user } = useAuth();
 
   useEffect(() => {
     setUsersPage(1);
-  }, [team?.id]);
+  }, [activeTeam?.id]);
 
   const loadUsers = useCallback(async () => {
-    const payload = await teamService.listTeamUsersPage(team?.id, {
+    const payload = await teamService.listTeamUsersPage(activeTeam?.id, {
       page: usersPage,
       pageSize: usersPageSize,
     });
 
     setUsersPagination(payload?.pagination ?? null);
     return Array.isArray(payload?.items) ? payload.items : [];
-  }, [team?.id, usersPage, usersPageSize]);
+  }, [activeTeam?.id, usersPage, usersPageSize]);
 
   const {
     data: users,
@@ -56,11 +60,11 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
     error,
     setError,
   } = useTeamResource({
-    enabled: Boolean(team?.id),
+    enabled: Boolean(activeTeam?.id),
     initialData: [],
     loadResource: loadUsers,
     fallbackErrorMessage: 'Failed to load users.',
-    dependencies: [team?.id, usersPage, usersPageSize],
+    dependencies: [activeTeam?.id, usersPage, usersPageSize],
   });
 
   const handlePreviousPage = () => {
@@ -114,7 +118,7 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
     : 'No users match your search.';
 
   const handleToggleAdminRole = async (member) => {
-    if (!canManageUsers) {
+    if (!isTeamAdmin) {
       return;
     }
 
@@ -124,9 +128,9 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
       setError('');
 
       if (member.is_admin) {
-        await teamService.makeTeamMember(team.id, member.id);
+        await teamService.makeTeamMember(activeTeam.id, member.id);
       } else {
-        await teamService.makeTeamAdmin(team.id, member.id);
+        await teamService.makeTeamAdmin(activeTeam.id, member.id);
       }
 
       setUsers((prev) =>
@@ -145,14 +149,14 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
   };
 
   const handleRemoveUser = async (member) => {
-    if (!canManageUsers) {
+    if (!isTeamAdmin) {
       return;
     }
 
     try {
       setActionLoading(`remove-user:${member.id}`);
       setError('');
-      await teamService.removeTeamUser(team.id, member.id);
+      await teamService.removeTeamUser(activeTeam.id, member.id);
       setUsers((prev) => prev.filter((item) => item.id !== member.id));
       setMenuOpenUserId(null);
     } catch (err) {
@@ -193,7 +197,7 @@ function UsersTab({ team, onOpenUserProfile, canManageUsers = false, currentUser
               key={member.id}
               className="relative rounded-xl border border-white/15 bg-black/20 px-4 py-3"
             >
-              {canManageUsers && member.id !== currentUserId ? (
+              {isTeamAdmin && member.id !== user?.id ? (
                 <div className="absolute top-2 right-2">
                   <button
                     type="button"

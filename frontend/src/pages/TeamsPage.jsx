@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { authService, teamService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 // Main authenticated workspace screen for team listing and team creation.
-function TeamsPage({ user, onLogout, onTeamOpen }) {
+function TeamsPage({ onLogout, onTeamOpen }) {
+  const { user } = useAuth();
   const [teams, setTeams] = useState([]);
   const [name, setName] = useState('');
   const [urlEndpoint, setUrlEndpoint] = useState('');

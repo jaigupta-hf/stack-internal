@@ -2,19 +2,21 @@ import { useEffect, useState } from 'react';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import { formatHomeQuestionTime } from '../../utils/dateTime';
+import { useTeam } from '../../context/TeamContext';
 
-function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
+function HomeTab({ onQuestionClick, onOpenUserProfile }) {
+  const { activeTeam } = useTeam();
   const [trendingQuestions, setTrendingQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     async function fetchTrending() {
-      if (!team?.id) return;
+      if (!activeTeam?.id) return;
       setLoading(true);
       setError('');
       try {
-        const data = await postService.listQuestions(team.id);
+        const data = await postService.listQuestions(activeTeam.id);
         const sorted = data.sort((a, b) => {
           const voteA = Number(a.vote_count || 0);
           const voteB = Number(b.vote_count || 0);
@@ -33,13 +35,13 @@ function HomeTab({ team, onQuestionClick, onOpenUserProfile }) {
       }
     }
     fetchTrending();
-  }, [team?.id]);
+  }, [activeTeam?.id]);
 
   return (
     <div>
       <h2 className="text-2xl font-semibold text-white">Home</h2>
       <p className="mt-2 text-slate-300">
-        Welcome to {team.name}. Here are the trending discussions and team activities.
+        Welcome to {activeTeam?.name}. Here are the trending discussions and team activities.
       </p>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
