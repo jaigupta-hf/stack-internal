@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F, Max, Prefetch, Q
+from django.db.models import Count, F, Max, Prefetch, Q
 from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework import status, viewsets
@@ -295,7 +295,7 @@ class ArticleViewSet(TeamScopedCrudViewSet):
 class QuestionViewSet(TeamScopedCrudViewSet):
     """Router-backed CRUD endpoints for questions."""
 
-    queryset = Post.objects.filter(type=0)
+    queryset = Post.objects.filter(type=0).annotate(followers_count=Count('follows'))
     serializer_class = CreateQuestionSerializer
 
     def list(self, request, *args, **kwargs):
@@ -387,7 +387,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             .order_by('created_at')
         )
 
-        return Post.objects.select_related('user', 'edited_by', 'closed_by', 'parent').prefetch_related(
+        return Post.objects.annotate(followers_count=Count('follows')).select_related('user', 'edited_by', 'closed_by', 'parent').prefetch_related(
             Prefetch(
                 'child_posts',
                 queryset=answer_queryset,
@@ -404,7 +404,9 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         )
 
     def _question_follow_response(self, *, question, is_following):
-        followers_count = PostFollow.objects.filter(post=question).count()
+        followers_count = (
+            self.get_queryset().filter(id=question.id).values_list('followers_count', flat=True).first() or 0
+        )
         output = QuestionFollowStateOutputSerializer(
             data={
                 'question_id': question.id,
@@ -517,7 +519,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
         mentions_payload = _serialize_post_mentions(question)
         is_following = PostFollow.objects.filter(post=question, user=request.user).exists()
-        followers_count = PostFollow.objects.filter(post=question).count()
+        followers_count = getattr(question, 'followers_count', 0)
         bounty = Bounty.objects.filter(post=question).order_by('-start_time').first()
 
         serializer = QuestionDetailModelSerializer(

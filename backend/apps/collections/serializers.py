@@ -49,14 +49,11 @@ class CollectionSummaryOutputSerializer(serializers.ModelSerializer):
         return obj.user.name
 
     def get_post_count(self, obj):
-        if 'post_count' in self.context:
-            return self.context['post_count']
-
         annotated = getattr(obj, 'post_count', None)
         if annotated is not None:
             return annotated
 
-        return obj.post_collections.count()
+        return self.context.get('post_count', 0)
 
 
 class CollectionListOutputSerializer(serializers.Serializer):
