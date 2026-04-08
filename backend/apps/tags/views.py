@@ -16,7 +16,47 @@ from .serializers import (
 	UpdateTagPreferenceInputSerializer,
 )
 
+TEAM_TAG_POST_TYPES = (0, 20, 21, 22, 23)
 
+
+# Parse and validate required team_id from query params.
+def _get_query_team_id_or_response(request):
+	raw_team_id = request.query_params.get('team_id')
+	if not raw_team_id:
+		return None, Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+	team_id_serializer = TeamIdQuerySerializer(data={'team_id': raw_team_id})
+	if not team_id_serializer.is_valid():
+		return None, Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+	return team_id_serializer.validated_data['team_id'], None
+
+
+# Enforce team membership for the given user/team pair.
+def _ensure_team_membership_or_response(*, team_id, user):
+	return ensure_team_membership(team_id=team_id, user=user)
+
+
+# Base queryset for tags used by active posts in a team.
+def _team_tags_queryset(team_id):
+	return Tag.objects.filter(
+		tag_posts__post__team_id=team_id,
+		tag_posts__post__type__in=TEAM_TAG_POST_TYPES,
+		tag_posts__post__delete_flag=False,
+	).distinct()
+
+
+# Base queryset for a user's tag preferences scoped to active team tags.
+def _team_tag_users_queryset(*, team_id, user):
+	return TagUser.objects.filter(
+		user=user,
+		tag__tag_posts__post__team_id=team_id,
+		tag__tag_posts__post__type__in=TEAM_TAG_POST_TYPES,
+		tag__tag_posts__post__delete_flag=False,
+	).select_related('tag').distinct()
+
+
+# Search tags by name fragment and return top suggestions ranked by popularity and usage.
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def search_tags(request):
@@ -50,31 +90,22 @@ def search_tags(request):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# List all tags used by active posts in a team with aggregate usage and watch metadata.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_team_tags(request):
 	user = request.user
 
-	raw_team_id = request.query_params.get('team_id')
-	if not raw_team_id:
-		return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+	team_id, team_id_error = _get_query_team_id_or_response(request)
+	if team_id_error:
+		return team_id_error
 
-	team_id_serializer = TeamIdQuerySerializer(data={'team_id': raw_team_id})
-	if not team_id_serializer.is_valid():
-		return Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-	team_id = team_id_serializer.validated_data['team_id']
-
-	membership_error = ensure_team_membership(team_id=team_id, user=user)
+	membership_error = _ensure_team_membership_or_response(team_id=team_id, user=user)
 	if membership_error:
 		return membership_error
 
 	tags = (
-		Tag.objects.filter(
-			tag_posts__post__team_id=team_id,
-			tag_posts__post__type__in=(0, 20, 21, 22, 23),
-			tag_posts__post__delete_flag=False,
-		)
-		.distinct()
+		_team_tags_queryset(team_id)
 		.annotate(
 			question_count_safe=Coalesce('question_count', Value(0), output_field=IntegerField()),
 			article_count_safe=Coalesce('article_count', Value(0), output_field=IntegerField()),
@@ -102,33 +133,22 @@ def list_team_tags(request):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Return the current user's tag preference records (watch/ignore) scoped to one team.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_tag_preferences(request):
 	user = request.user
 
-	raw_team_id = request.query_params.get('team_id')
-	if not raw_team_id:
-		return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+	team_id, team_id_error = _get_query_team_id_or_response(request)
+	if team_id_error:
+		return team_id_error
 
-	team_id_serializer = TeamIdQuerySerializer(data={'team_id': raw_team_id})
-	if not team_id_serializer.is_valid():
-		return Response(team_id_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-	team_id = team_id_serializer.validated_data['team_id']
-
-	membership_error = ensure_team_membership(team_id=team_id, user=user)
+	membership_error = _ensure_team_membership_or_response(team_id=team_id, user=user)
 	if membership_error:
 		return membership_error
 
 	tag_users = (
-		TagUser.objects.filter(
-			user=user,
-			tag__tag_posts__post__team_id=team_id,
-			tag__tag_posts__post__type__in=(0, 20, 21, 22, 23),
-			tag__tag_posts__post__delete_flag=False,
-		)
-		.select_related('tag')
-		.distinct()
+		_team_tag_users_queryset(team_id=team_id, user=user)
 		.order_by('-count', 'tag__name')
 	)
 
@@ -148,6 +168,7 @@ def list_tag_preferences(request):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Update one tag preference for the current user and keep tag watch_count in sync atomically.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def update_tag_preference(request):
@@ -169,16 +190,11 @@ def update_tag_preference(request):
 	field = validated['field']
 	value = validated['value']
 
-	membership_error = ensure_team_membership(team_id=team_id, user=user)
+	membership_error = _ensure_team_membership_or_response(team_id=team_id, user=user)
 	if membership_error:
 		return membership_error
 
-	tag = Tag.objects.filter(
-		id=tag_id,
-		tag_posts__post__team_id=team_id,
-		tag_posts__post__type__in=(0, 20, 21, 22, 23),
-		tag_posts__post__delete_flag=False,
-	).distinct().first()
+	tag = _team_tags_queryset(team_id).filter(id=tag_id).first()
 	if not tag:
 		return Response({'error': 'Tag not found in this team'}, status=status.HTTP_404_NOT_FOUND)
 

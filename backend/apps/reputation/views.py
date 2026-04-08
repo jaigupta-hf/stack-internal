@@ -1,86 +1,82 @@
 from collections import OrderedDict
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.pagination import parse_pagination_params, paginate_queryset
 
-from teams.permissions import ensure_team_membership, get_team_membership
+from apps.pagination import parse_pagination_params, paginate_queryset
+from teams.permissions import IsTeamMember, get_team_membership
 
 from .models import ReputationHistory
 from .serializers import ReputationHistoryOutputSerializer, ReputationHistoryQuerySerializer
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def list_reputation_history(request):
-    user = request.user
+class ReputationHistoryListView(ListAPIView):
+    """Return a paginated, day-grouped reputation timeline for a team member."""
 
-    if not request.query_params.get('team_id'):
-        return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    permission_classes = [IsAuthenticated, IsTeamMember]
+    serializer_class = ReputationHistoryQuerySerializer
 
-    query_serializer = ReputationHistoryQuerySerializer(data=request.query_params)
-    if not query_serializer.is_valid():
-        return Response(query_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_team_id_for_permission(self, request):
+        return request.query_params.get('team_id')
 
-    query_data = query_serializer.validated_data
-    team_id = query_data['team_id']
+    def get(self, request, *args, **kwargs):
+        if not request.query_params.get('team_id'):
+            return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-    membership_error = ensure_team_membership(team_id=team_id, user=user)
-    if membership_error:
-        return membership_error
+        query_serializer = self.get_serializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return Response(query_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    target_user_id = query_data.get('user_id', user.id)
+        query_data = query_serializer.validated_data
+        team_id = query_data['team_id']
+        target_user_id = query_data.get('user_id', request.user.id)
 
-    if get_team_membership(team_id=team_id, user_id=target_user_id) is None:
-        return Response({'error': 'Target user is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+        if get_team_membership(team_id=team_id, user_id=target_user_id) is None:
+            return Response({'error': 'Target user is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
-    page, page_size = parse_pagination_params(request)
+        page, page_size = parse_pagination_params(request)
 
-    history = (
-        ReputationHistory.objects.filter(team_id=team_id, user_id=target_user_id)
-        .select_related('post')
-        .order_by('-created_at')
-    )
-    history, pagination = paginate_queryset(history, page=page, page_size=page_size)
+        history = (
+            ReputationHistory.objects.filter(team_id=team_id, user_id=target_user_id)
+            .select_related('post', 'post__parent', 'triggered_by')
+            .only(
+                'id',
+                'points',
+                'reason',
+                'created_at',
+                'triggered_by_id',
+                'post_id',
+                'post__title',
+                'post__type',
+                'post__parent_id',
+            )
+            .order_by('-created_at')
+        )
+        history, pagination = paginate_queryset(history, page=page, page_size=page_size)
 
-    grouped = OrderedDict()
-    for item in history:
-        group_key = item.created_at.date().isoformat()
-        if group_key not in grouped:
-            grouped[group_key] = {
-                'date': group_key,
-                'total_points': 0,
-                'items': [],
-            }
+        grouped = OrderedDict()
+        for item in history:
+            group_key = item.created_at.date().isoformat()
+            grouped.setdefault(group_key, []).append(item)
 
-        reference_type = 'article' if item.post.type >= 20 else 'question'
-        reference_post_id = item.post.parent_id if item.post.type == 1 and item.post.parent_id else item.post_id
+        groups_output = []
+        for date_key, entries in grouped.items():
+            groups_output.append(
+                {
+                    'date': date_key,
+                    'total_points': sum(entry.points for entry in entries),
+                    'items': entries,
+                }
+            )
 
-        grouped[group_key]['total_points'] += item.points
-        grouped[group_key]['items'].append(
+        output = ReputationHistoryOutputSerializer(
             {
-                'id': item.id,
-                'points': item.points,
-                'reason': item.reason,
-                'created_at': item.created_at,
-                'triggered_by_id': item.triggered_by_id,
-                'post_id': item.post_id,
-                'post_title': item.post.title,
-                'post_type': item.post.type,
-                'reference_type': reference_type,
-                'reference_post_id': reference_post_id,
+                'user_id': target_user_id,
+                'groups': groups_output,
+                'pagination': pagination,
             }
         )
 
-    output = ReputationHistoryOutputSerializer(
-        data={
-            'user_id': target_user_id,
-            'groups': list(grouped.values()),
-            'pagination': pagination,
-        }
-    )
-    output.is_valid(raise_exception=True)
-
-    return Response(output.data, status=status.HTTP_200_OK)
+        return Response(output.data, status=status.HTTP_200_OK)

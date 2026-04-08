@@ -25,63 +25,153 @@ from .constants import (
 )
 
 
+# Parse and validate mutually exclusive post_id/collection_id bookmark target fields.
+def _parse_bookmark_target_or_response(payload):
+    post_id = payload.get('post_id')
+    collection_id = payload.get('collection_id')
+    if bool(post_id) == bool(collection_id):
+        return None, None, Response({'error': 'Exactly one of post_id or collection_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    return post_id, collection_id, None
+
+
+# Resolve bookmark target for add flow and enforce team membership.
+def _resolve_add_target_or_response(*, user, post_id, collection_id):
+    if post_id:
+        try:
+            post = Post.objects.select_related('team').get(id=post_id)
+        except Post.DoesNotExist:
+            return None, None, Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        membership_error = ensure_team_membership(team=post.team, user=user)
+        if membership_error:
+            return None, None, membership_error
+
+        return 'post', post, None
+
+    try:
+        collection = Collection.objects.select_related('team').get(id=collection_id)
+    except Collection.DoesNotExist:
+        return None, None, Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    membership_error = ensure_team_membership(team=collection.team, user=user)
+    if membership_error:
+        return None, None, membership_error
+
+    return 'collection', collection, None
+
+
+# Create bookmark for the resolved target and update aggregate bookmark counters when newly created.
+def _create_bookmark(*, user, target_type, target):
+    if target_type == 'post':
+        bookmark, created = Bookmark.objects.get_or_create(
+            user=user,
+            post=target,
+            collection=None,
+        )
+        if created:
+            Post.objects.filter(id=target.id).update(bookmarks_count=F('bookmarks_count') + 1)
+        return bookmark
+
+    bookmark, created = Bookmark.objects.get_or_create(
+        user=user,
+        post=None,
+        collection=target,
+    )
+    if created:
+        Collection.objects.filter(id=target.id).update(bookmarks_count=F('bookmarks_count') + 1)
+    return bookmark
+
+
+# Remove bookmark for the resolved target and decrement aggregate bookmark counters.
+def _remove_bookmark_or_response(*, user, post_id, collection_id):
+    if post_id:
+        deleted_count, _ = Bookmark.objects.filter(user=user, post_id=post_id).delete()
+        if deleted_count == 0:
+            return None, Response({'error': 'Bookmark not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        Post.objects.filter(id=post_id).update(
+            bookmarks_count=Greatest(Coalesce(F('bookmarks_count'), 0) - deleted_count, 0)
+        )
+        return {'post_id': int(post_id), 'collection_id': None}, None
+
+    deleted_count, _ = Bookmark.objects.filter(user=user, collection_id=collection_id, post__isnull=True).delete()
+    if deleted_count == 0:
+        return None, Response({'error': 'Bookmark not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    Collection.objects.filter(id=collection_id).update(
+        bookmarks_count=Greatest(Coalesce(F('bookmarks_count'), 0) - deleted_count, 0)
+    )
+    return {'post_id': None, 'collection_id': int(collection_id)}, None
+
+
+# Serialize one bookmark row for list response as either post or collection payload.
+def _serialize_bookmark_item(item, posts_by_id):
+    if item.post_id:
+        post = posts_by_id.get(item.post_id, item.post)
+        if not post:
+            return None
+
+        return {
+            'bookmark_id': item.id,
+            'target_type': 'post',
+            'post_id': post.id,
+            'collection_id': None,
+            'delete_flag': post.delete_flag,
+            'post_type': post.type,
+            'post_type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
+            'title': post.title,
+            'body': post.body,
+            'user_name': post.user.name,
+            'created_at': post.created_at,
+            'views_count': post.views_count,
+            'vote_count': post.vote_count,
+            'bookmarks_count': post.bookmarks_count,
+            'tags': serialize_post_tags(post, 'bookmark_tag_posts'),
+            'is_bookmarked': True,
+        }
+
+    collection = item.collection
+    if not collection:
+        return None
+
+    return {
+        'bookmark_id': item.id,
+        'target_type': 'collection',
+        'post_id': None,
+        'collection_id': collection.id,
+        'post_type': None,
+        'post_type_label': 'Collection',
+        'title': collection.title,
+        'body': collection.description,
+        'user_name': collection.user.name,
+        'created_at': collection.created_at,
+        'views_count': collection.views_count,
+        'vote_count': collection.vote_count,
+        'bookmarks_count': collection.bookmarks_count,
+        'tags': [],
+        'is_bookmarked': True,
+    }
+
+
+# Handle add bookmark.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_bookmark(request):
     user = request.user
 
-    post_id = request.data.get('post_id')
-    collection_id = request.data.get('collection_id')
+    post_id, collection_id, target_error = _parse_bookmark_target_or_response(request.data)
+    if target_error:
+        return target_error
 
-    if bool(post_id) == bool(collection_id):
-        return Response({'error': 'Exactly one of post_id or collection_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-    if post_id:
-        try:
-            post = Post.objects.select_related('team').get(id=post_id)
-        except Post.DoesNotExist:
-            return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        membership_error = ensure_team_membership(team=post.team, user=user)
-        if membership_error:
-            return membership_error
-
-        bookmark, created = Bookmark.objects.get_or_create(
-            user=user,
-            post=post,
-            collection=None,
-        )
-
-        if created:
-            Post.objects.filter(id=post.id).update(bookmarks_count=F('bookmarks_count') + 1)
-
-        return Response(
-            {
-                'id': bookmark.id,
-                'post_id': bookmark.post_id,
-                'collection_id': None,
-                'is_bookmarked': True,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-    try:
-        collection = Collection.objects.select_related('team').get(id=collection_id)
-    except Collection.DoesNotExist:
-        return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    membership_error = ensure_team_membership(team=collection.team, user=user)
-    if membership_error:
-        return membership_error
-
-    bookmark, created = Bookmark.objects.get_or_create(
+    target_type, target, resolve_error = _resolve_add_target_or_response(
         user=user,
-        post=None,
-        collection=collection,
+        post_id=post_id,
+        collection_id=collection_id,
     )
+    if resolve_error:
+        return resolve_error
 
-    if created:
-        Collection.objects.filter(id=collection.id).update(bookmarks_count=F('bookmarks_count') + 1)
+    bookmark = _create_bookmark(user=user, target_type=target_type, target=target)
 
     return Response(
         {
@@ -94,52 +184,35 @@ def add_bookmark(request):
     )
 
 
+# Handle remove bookmark.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def remove_bookmark(request):
     user = request.user
 
-    post_id = request.data.get('post_id')
-    collection_id = request.data.get('collection_id')
-    if bool(post_id) == bool(collection_id):
-        return Response({'error': 'Exactly one of post_id or collection_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    post_id, collection_id, target_error = _parse_bookmark_target_or_response(request.data)
+    if target_error:
+        return target_error
 
-    if post_id:
-        deleted_count, _ = Bookmark.objects.filter(user=user, post_id=post_id).delete()
-        if deleted_count == 0:
-            return Response({'error': 'Bookmark not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        Post.objects.filter(id=post_id).update(
-            bookmarks_count=Greatest(Coalesce(F('bookmarks_count'), 0) - deleted_count, 0)
-        )
-
-        return Response(
-            {
-                'post_id': int(post_id),
-                'collection_id': None,
-                'is_bookmarked': False,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-    deleted_count, _ = Bookmark.objects.filter(user=user, collection_id=collection_id, post__isnull=True).delete()
-    if deleted_count == 0:
-        return Response({'error': 'Bookmark not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    Collection.objects.filter(id=collection_id).update(
-        bookmarks_count=Greatest(Coalesce(F('bookmarks_count'), 0) - deleted_count, 0)
+    target_payload, remove_error = _remove_bookmark_or_response(
+        user=user,
+        post_id=post_id,
+        collection_id=collection_id,
     )
+    if remove_error:
+        return remove_error
 
     return Response(
         {
-            'post_id': None,
-            'collection_id': int(collection_id),
+            'post_id': target_payload['post_id'],
+            'collection_id': target_payload['collection_id'],
             'is_bookmarked': False,
         },
         status=status.HTTP_200_OK,
     )
 
 
+# Handle list bookmarks.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_bookmarks(request):
@@ -191,60 +264,14 @@ def list_bookmarks(request):
 
     data = []
     for item in bookmarks:
-        if item.post_id:
-            post = posts_by_id.get(item.post_id, item.post)
-            if not post:
-                continue
-
-            data.append(
-                {
-                    'bookmark_id': item.id,
-                    'target_type': 'post',
-                    'post_id': post.id,
-                    'collection_id': None,
-                    'delete_flag': post.delete_flag,
-                    'post_type': post.type,
-                    'post_type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
-                    'title': post.title,
-                    'body': post.body,
-                    'user_name': post.user.name,
-                    'created_at': post.created_at,
-                    'views_count': post.views_count,
-                    'vote_count': post.vote_count,
-                    'bookmarks_count': post.bookmarks_count,
-                    'tags': serialize_post_tags(post, 'bookmark_tag_posts'),
-                    'is_bookmarked': True,
-                }
-            )
-            continue
-
-        collection = item.collection
-        if not collection:
-            continue
-
-        data.append(
-            {
-                'bookmark_id': item.id,
-                'target_type': 'collection',
-                'post_id': None,
-                'collection_id': collection.id,
-                'post_type': None,
-                'post_type_label': 'Collection',
-                'title': collection.title,
-                'body': collection.description,
-                'user_name': collection.user.name,
-                'created_at': collection.created_at,
-                'views_count': collection.views_count,
-                'vote_count': collection.vote_count,
-                'bookmarks_count': collection.bookmarks_count,
-                'tags': [],
-                'is_bookmarked': True,
-            }
-        )
+        payload = _serialize_bookmark_item(item, posts_by_id)
+        if payload:
+            data.append(payload)
 
     return Response(data, status=status.HTTP_200_OK)
 
 
+# Handle list followed posts.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_followed_posts(request):

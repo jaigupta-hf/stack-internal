@@ -6,9 +6,33 @@ import CommentSection, {
 } from './CommentSection';
 import VotePanel from './VotePanel';
 
+const COLLECTION_PAGE_SIZE_OPTIONS = [9, 18, 36];
+
+const getVisiblePageNumbers = (pagination, windowSize = 5) => {
+  const totalPages = Math.max(pagination?.total_pages || 1, 1);
+  const currentPage = Math.min(Math.max(pagination?.page || 1, 1), totalPages);
+  const halfWindow = Math.floor(windowSize / 2);
+
+  let startPage = Math.max(currentPage - halfWindow, 1);
+  let endPage = Math.min(startPage + windowSize - 1, totalPages);
+
+  if (endPage - startPage + 1 < windowSize) {
+    startPage = Math.max(endPage - windowSize + 1, 1);
+  }
+
+  const pages = [];
+  for (let page = startPage; page <= endPage; page += 1) {
+    pages.push(page);
+  }
+
+  return pages;
+};
+
 function CollectionsTabView({ team, isTeamAdmin, onOpenUserProfile, controller }) {
   const {
     collections,
+    collectionsPageSize,
+    collectionsPagination,
     loading,
     openingCollection,
     error,
@@ -51,6 +75,10 @@ function CollectionsTabView({ team, isTeamAdmin, onOpenUserProfile, controller }
     setShowDeletedTrees,
     setEditingCommentBody,
     resetForm,
+    handleCollectionsPrevPage,
+    handleCollectionsNextPage,
+    handleCollectionsGoToPage,
+    handleCollectionPageSizeChange,
     handleBackToCollections,
     handleBackToCollectionPosts,
     handleCollectionUpvote,
@@ -474,34 +502,97 @@ function CollectionsTabView({ team, isTeamAdmin, onOpenUserProfile, controller }
       ) : null}
 
       {!loading && !selectedCollection && collections.length > 0 ? (
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {collections.map((collection) => (
-            <li key={collection.id}>
-              <div className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
-                      {collection.views_count || 0} views
-                    </span>
-                    <span className="shrink-0 rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
-                      {collection.post_count || 0} posts
-                    </span>
+        <>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {collections.map((collection) => (
+              <li key={collection.id}>
+                <div className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="shrink-0 rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+                        {collection.views_count || 0} views
+                      </span>
+                      <span className="shrink-0 rounded-full border border-white/0 bg-white/10 px-2.5 py-0.5 text-[11px] font-medium text-slate-300">
+                        {collection.post_count || 0} posts
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-400">{formatCollectionTime(collection.created_at)}</span>
                   </div>
-                  <span className="text-xs text-slate-400">{formatCollectionTime(collection.created_at)}</span>
+
+                  <button
+                    type="button"
+                    onClick={() => openCollection(collection.id, true)}
+                    className="mt-2 text-left text-base font-semibold text-slate-100 transition hover:text-cyan-200 hover:underline"
+                  >
+                    {collection.title}
+                  </button>
+                  <p className="mt-1 text-sm text-slate-300 whitespace-pre-wrap">{collection.description || 'No description provided.'}</p>
                 </div>
+              </li>
+            ))}
+          </ul>
+
+          {collectionsPagination ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p className="text-xs text-slate-300">
+                Page {collectionsPagination.page} of {Math.max(collectionsPagination.total_pages || 1, 1)}
+                {' '}•{' '}Total {collectionsPagination.total_items ?? collections.length} collections
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-xs text-slate-300">
+                  <span>Per page</span>
+                  <select
+                    value={collectionsPageSize}
+                    onChange={(e) => handleCollectionPageSizeChange(e.target.value)}
+                    className="rounded-full border border-white/15 bg-white/10 px-2 py-1 text-xs text-slate-100 outline-none"
+                  >
+                    {COLLECTION_PAGE_SIZE_OPTIONS.map((option) => (
+                      <option
+                        key={`collection-page-size-${option}`}
+                        value={option}
+                        className="bg-[#111821] text-slate-100"
+                      >
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <button
                   type="button"
-                  onClick={() => openCollection(collection.id, true)}
-                  className="mt-2 text-left text-base font-semibold text-slate-100 transition hover:text-cyan-200 hover:underline"
+                  onClick={handleCollectionsPrevPage}
+                  disabled={!collectionsPagination.has_previous}
+                  className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {collection.title}
+                  Previous
                 </button>
-                <p className="mt-1 text-sm text-slate-300 whitespace-pre-wrap">{collection.description || 'No description provided.'}</p>
+                <button
+                  type="button"
+                  onClick={handleCollectionsNextPage}
+                  disabled={!collectionsPagination.has_next}
+                  className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Next
+                </button>
+
+                {getVisiblePageNumbers(collectionsPagination).map((page) => (
+                  <button
+                    key={`collection-page-${page}`}
+                    type="button"
+                    onClick={() => handleCollectionsGoToPage(page)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                      page === collectionsPagination.page
+                        ? 'border-cyan-300/0 bg-cyan-300/20 text-cyan-100'
+                        : 'border-white/15 bg-white/10 text-slate-200 hover:bg-white/20'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
               </div>
-            </li>
-          ))}
-        </ul>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {showCreateModal ? (

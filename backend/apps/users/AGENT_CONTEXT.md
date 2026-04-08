@@ -11,7 +11,7 @@ It handles:
 
 ## Main Files
 - `models.py`: user identity model.
-- `views.py`: auth and profile endpoints.
+- `views.py`: class-based auth and profile endpoints (`APIView`).
 - `serializers.py`: input/output contracts.
 - `utils/auth.py`: JWT generation/verification and DRF auth backend.
 - `urls.py`: route mapping for `/api/users/*`.
@@ -27,25 +27,24 @@ Important fields:
 ## Endpoints
 Base path: `/api/users/`
 
-- `POST auth/google/` -> `google_auth`
+- `POST auth/google/` -> `GoogleAuthView.post`
   - Validates Google credential token.
   - Gets or creates app user.
   - Returns app JWT tokens and user payload.
-- `GET auth/me/` -> `get_current_user`
+- `GET auth/me/` -> `CurrentUserView.get`
   - Returns authenticated user payload.
-- `POST auth/logout/` -> `logout_user`
+- `POST auth/logout/` -> `LogoutView.post`
   - Stateless logout handshake.
-- `GET profile/` -> `get_profile`
+- `GET profile/` -> `ProfileView.get`
   - Requires query `team_id`.
   - Optional `user_id` to view another member profile.
   - Returns profile + recent activity + tag usage.
-- `PATCH profile/` -> `get_profile`
+- `PATCH profile/` -> `ProfileView.patch`
   - Partial update for `name`, `title`, `about`.
 
 ## Internal Logic Notes
-- Team access checks in profile GET use shared helpers from `teams.permissions`:
-  - `ensure_team_membership`
-  - `get_team_membership`
+- Team access checks for profile reads use `IsTeamMember` via `ProfileView.permission_classes`.
+- `get_team_membership` is still used to validate whether an optionally requested `user_id` belongs to the team.
 - Profile activity is built from recent posts for the team.
 - `can_edit` is true only when target profile is the authenticated user.
 

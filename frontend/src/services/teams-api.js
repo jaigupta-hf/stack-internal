@@ -1,4 +1,4 @@
-import { api, asList } from './config';
+import { api, asList, withPaginationParams } from './config';
 
 export const teamService = {
   async listTeams() {
@@ -21,9 +21,16 @@ export const teamService = {
     return response.data;
   },
 
-  async listTeamUsers(teamId) {
-    const response = await api.get(`/teams/${teamId}/users/`);
-    return asList(response.data);
+  async listTeamUsersPage(teamId, options = {}) {
+    const response = await api.get(`/teams/${teamId}/users/`, {
+      params: withPaginationParams({}, options),
+    });
+    return response.data;
+  },
+
+  async listTeamUsers(teamId, options = {}) {
+    const payload = await teamService.listTeamUsersPage(teamId, options);
+    return asList(payload);
   },
 
   async makeTeamAdmin(teamId, userId) {

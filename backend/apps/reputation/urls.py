@@ -1,8 +1,8 @@
 from django.urls import path
 
-from .views import list_reputation_history
+from .views import ReputationHistoryListView
 
 
 urlpatterns = [
-    path('history/', list_reputation_history, name='list_reputation_history'),
+    path('history/', ReputationHistoryListView.as_view(), name='list_reputation_history'),
 ]

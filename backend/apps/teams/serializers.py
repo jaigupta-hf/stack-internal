@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Team
+from .models import Team, TeamUser
+from .permissions import get_team_membership
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -9,36 +10,67 @@ class TeamSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class TeamListItemOutputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    url_endpoint = serializers.CharField()
-    is_admin = serializers.BooleanField()
+class TeamListItemOutputSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='team_id', read_only=True)
+    name = serializers.CharField(source='team.name', read_only=True)
+    url_endpoint = serializers.CharField(source='team.url_endpoint', read_only=True)
+
+    class Meta:
+        model = TeamUser
+        fields = ['id', 'name', 'url_endpoint', 'is_admin']
 
 
-class TeamBySlugOutputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    url_endpoint = serializers.CharField()
-    is_member = serializers.BooleanField()
-    is_admin = serializers.BooleanField()
+class TeamBySlugOutputSerializer(serializers.ModelSerializer):
+    is_member = serializers.SerializerMethodField()
+    is_admin = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Team
+        fields = ['id', 'name', 'url_endpoint', 'is_member', 'is_admin']
+
+    def _membership(self, team):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return None
+        return get_team_membership(team=team, user=user)
+
+    def get_is_member(self, team):
+        return self._membership(team) is not None
+
+    def get_is_admin(self, team):
+        membership = self._membership(team)
+        return bool(membership and membership.is_admin)
 
 
-class TeamJoinOutputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    url_endpoint = serializers.CharField()
-    is_member = serializers.BooleanField()
-    is_admin = serializers.BooleanField()
-    already_member = serializers.BooleanField()
+class TeamJoinOutputSerializer(serializers.ModelSerializer):
+    is_member = serializers.SerializerMethodField()
+    is_admin = serializers.SerializerMethodField()
+    already_member = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Team
+        fields = ['id', 'name', 'url_endpoint', 'is_member', 'is_admin', 'already_member']
+
+    def get_is_member(self, obj):
+        return True
+
+    def get_is_admin(self, obj):
+        membership = self.context.get('membership')
+        return bool(membership and membership.is_admin)
+
+    def get_already_member(self, obj):
+        return bool(self.context.get('already_member', False))
 
 
-class TeamUserOutputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    email = serializers.EmailField()
-    is_admin = serializers.BooleanField()
-    joined_at = serializers.DateTimeField()
+class TeamUserOutputSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='user_id', read_only=True)
+    name = serializers.CharField(source='user.name', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = TeamUser
+        fields = ['id', 'name', 'email', 'is_admin', 'joined_at']
 
 
 class TeamUsersPaginationSerializer(serializers.Serializer):
@@ -55,10 +87,13 @@ class TeamUsersListOutputSerializer(serializers.Serializer):
     pagination = TeamUsersPaginationSerializer()
 
 
-class TeamUserRoleOutputSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    name = serializers.CharField()
-    is_admin = serializers.BooleanField()
+class TeamUserRoleOutputSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='user_id', read_only=True)
+    name = serializers.CharField(source='user.name', read_only=True)
+
+    class Meta:
+        model = TeamUser
+        fields = ['id', 'name', 'is_admin']
 
 
 class TeamUserRemovedOutputSerializer(serializers.Serializer):

@@ -1,40 +1,98 @@
 # Frontend Overview
 
-This frontend is a React app that drives the Stack Internal user experience.
-At a high level, it handles:
+This frontend is a React + Vite single-page app for Stack Internal. It provides:
 
-- Sign-in with Google
-- Session restore on refresh
-- Team listing and team creation after login
+- Google-based login and session restore
+- Team-aware routing (`/:teamSlug/:tabSlug`)
+- A tabbed workspace for collaboration features:
+	- Home
+	- Questions
+	- Articles
+	- Collections
+	- For You (notifications)
+	- Bookmarks
+	- Tags
+	- Users
+	- Admin Settings
+- Profile pages, global search, and URL-synced detail views
 
-## UI Flow
+## High-Level Architecture
 
-1. App starts and checks whether a session token exists.
-2. If no valid session is found, user sees LoginPage.
-3. After successful login, user is taken to TeamsPage.
-4. TeamsPage allows listing existing teams and creating new teams.
+### 1) App Shell and Routing
 
-## Architecture At A Glance
+- `src/App.jsx` is the orchestration layer.
+- Responsibilities:
+	- Auth bootstrap (`getCurrentUser`)
+	- Team hydration from URL slug
+	- Tab and profile URL sync
+	- Global search and shared top-level UI state
+	- Gatekeeping member/admin access
 
-- src/App.jsx
-	- Entry flow controller for auth check and page switching
-- src/pages/LoginPage.jsx
-	- Google OAuth entry point
-- src/pages/TeamsPage.jsx
-	- Authenticated workspace for teams
-- src/services/
-	- config.js: shared axios client, token storage, interceptors
-	- login-api.js: user auth service calls
-	- teams-api.js: teams service calls
-	- api.js: single import surface for all service modules
+### 2) Feature Screens
 
-## Integration With Backend
+- `src/pages/` contains page-level entry screens (`LoginPage`, `TeamsPage`, `ProfilePage`).
+- `src/pages/navigationTabs/` contains each primary product area as a tab module.
+- `src/components/` contains reusable and feature-scoped presentation components.
+- `src/hooks/` contains stateful domain and controller hooks used by tabs/components.
 
-- Frontend calls backend via VITE_API_URL + /api base path.
-- Bearer token is attached automatically by axios interceptor.
-- 401 responses clear token state and force a return to login.
+### 3) Data Layer (API Services)
 
-## Running Locally
+- `src/services/config.js`
+	- Shared Axios client
+	- Token storage and auth interceptors
+	- Pagination helpers (`withPaginationParams`, `asList`, `asPaginated`)
+- `src/services/*-api.js`
+	- Domain-specific API wrappers
+- `src/services/api.js`
+	- Barrel export for a single import surface across the app
+
+## Services Folder Arrangement
+
+Current arrangement is good and follows a practical domain-based structure.
+
+Current modules:
+
+- `login-api.js` (auth/profile)
+- `teams-api.js`
+- `post-api.js`
+- `collection-api.js`
+- `notification-api.js`
+- `reputation-api.js`
+- `tags-api.js`
+- `comments-api.js`
+- `vote-api.js`
+- `config.js` (transport + shared helpers)
+- `api.js` (barrel exports)
+
+Why this is a correct approach:
+
+- Keeps API concerns out of UI components.
+- Groups calls by backend domain, which scales better than one giant file.
+- Centralizes auth header and 401 handling.
+- Makes imports consistent via `src/services/api.js`.
+
+Recommended conventions as the app grows:
+
+- Keep service modules thin: transport and payload shaping only.
+- Keep UI/data transformation logic in hooks or domain utilities.
+- Prefer importing through `src/services/api.js` to avoid deep, inconsistent imports.
+- If a service file becomes very large, split by sub-domain (example: `post-question-api.js`, `post-article-api.js`) while preserving barrel exports.
+
+## Backend Integration
+
+- Base URL: `VITE_API_URL` + `/api`
+- Bearer token is attached by Axios request interceptor.
+- On 401, tokens are cleared and user is redirected to login.
+
+### Pagination Pattern
+
+- Shared option shape: `{ page?: number, pageSize?: number }`
+- `pageSize` is mapped to backend `page_size`
+- Many list endpoints expose both:
+	- `list*Page(...)` for full payload (`items + pagination`)
+	- `list*(...)` for backward-compatible array usage
+
+## Local Development
 
 ```bash
 cd frontend
@@ -42,13 +100,7 @@ npm install
 npm run dev
 ```
 
-Use frontend/.env to set:
+Set env vars in `frontend/.env`:
 
-- VITE_GOOGLE_CLIENT_ID
-- VITE_API_URL
-
-## Developer Guidance
-
-- Keep page-level logic in pages and API logic in services.
-- Reuse src/services/api.js exports instead of importing deep service files across the app.
-- When adding new protected screens, follow the same auth-guard pattern used in App.jsx.
+- `VITE_GOOGLE_CLIENT_ID`
+- `VITE_API_URL`

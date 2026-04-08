@@ -38,24 +38,9 @@ from .views_common import (
 	_first_serializer_error,
 	_notify_question_followers,
 )
-from .views_articles import create_article, list_articles, article_detail
-from .views_interactions import (
-	add_question_mentions,
-	award_question_bounty,
-	follow_question,
-	offer_question_bounty,
-	remove_question_mention,
-	unfollow_question,
-)
 from .views_questions import (
-	close_question,
-	delete_question,
-	list_questions,
-	question_detail,
-	reopen_question,
 	search_global_titles,
 	search_questions,
-	undelete_question,
 )
 from .views_bookmarks import (
 	add_bookmark,
@@ -65,6 +50,7 @@ from .views_bookmarks import (
 )
 
 
+# Handle create question.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_question(request):
@@ -115,6 +101,7 @@ def create_question(request):
 	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Handle create answer.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_answer(request, question_id):
@@ -195,6 +182,7 @@ def create_answer(request, question_id):
 	return Response(output.data, status=status.HTTP_201_CREATED)
 
 
+# Handle update answer.
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def update_answer(request, answer_id):
@@ -241,6 +229,7 @@ def update_answer(request, answer_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle delete answer.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def delete_answer(request, answer_id):
@@ -277,6 +266,7 @@ def delete_answer(request, answer_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle undelete answer.
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def undelete_answer(request, answer_id):
@@ -310,6 +300,7 @@ def undelete_answer(request, answer_id):
 	return Response(output.data, status=status.HTTP_200_OK)
 
 
+# Handle approve answer.
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def approve_answer(request, question_id):

@@ -1,6 +1,7 @@
 from .models import Notification
 
 
+# Handle create notification.
 def create_notification(*, post, user, triggered_by, reason):
     if not post or not user or not triggered_by:
         return None

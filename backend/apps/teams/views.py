@@ -1,262 +1,225 @@
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from apps.pagination import parse_pagination_params, paginate_queryset
+
 from .models import Team, TeamUser
-from .permissions import ensure_team_membership, ensure_team_admin, get_team_membership
+from .permissions import IsTeamAdmin, IsTeamMember, get_team_membership
 from .serializers import (
-	TeamBySlugOutputSerializer,
-	TeamJoinOutputSerializer,
-	TeamListItemOutputSerializer,
-	TeamSerializer,
-	TeamUserRemovedOutputSerializer,
-	TeamUserRoleOutputSerializer,
-	TeamUsersListOutputSerializer,
+    TeamBySlugOutputSerializer,
+    TeamJoinOutputSerializer,
+    TeamListItemOutputSerializer,
+    TeamSerializer,
+    TeamUserRemovedOutputSerializer,
+    TeamUserRoleOutputSerializer,
+    TeamUsersListOutputSerializer,
 )
 
 
-# List current user's teams, or create a new team and auto-add creator as admin.
-@api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
-def teams_handler(request):
-	user = request.user
+# Fetch a team by id and return a consistent 404 response when it does not exist.
+def _get_team_or_404(team_id):
+    try:
+        return Team.objects.get(id=team_id), None
+    except Team.DoesNotExist:
+        return None, Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
 
-	if request.method == 'GET':
-		memberships = (
-			TeamUser.objects.filter(user=user)
-			.select_related('team')
-			.order_by('team__name')
-		)
-		data = [
-			{
-				'id': membership.team.id,
-				'name': membership.team.name,
-				'url_endpoint': membership.team.url_endpoint,
-				'is_admin': membership.is_admin,
-			}
-			for membership in memberships
-		]
-		output = TeamListItemOutputSerializer(data=data, many=True)
-		output.is_valid(raise_exception=True)
-		return Response(output.data, status=status.HTTP_200_OK)
-
-	serializer = TeamSerializer(data=request.data)
-	if not serializer.is_valid():
-		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-	team = serializer.save()
-	TeamUser.objects.create(team=team, user=user, is_admin=True)
-	return Response(TeamSerializer(team).data, status=status.HTTP_201_CREATED)
+# Load the target team membership record or return a uniform not-found response.
+def _get_target_membership_or_404(*, team, user_id, select_related_user=False):
+    target_membership = get_team_membership(
+        team=team,
+        user_id=user_id,
+        select_related_user=select_related_user,
+    )
+    if not target_membership:
+        return None, Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+    return target_membership, None
 
 
-# Return team metadata by slug and membership flags for current user.
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def team_by_slug_handler(request, url_endpoint):
-	user = request.user
-
-	try:
-		team = Team.objects.get(url_endpoint=url_endpoint)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
-
-	membership = get_team_membership(team=team, user=user)
-
-	output = TeamBySlugOutputSerializer(
-		data={
-			'id': team.id,
-			'name': team.name,
-			'url_endpoint': team.url_endpoint,
-			'is_member': membership is not None,
-			'is_admin': membership.is_admin if membership else False,
-		}
-	)
-	output.is_valid(raise_exception=True)
-	return Response(output.data, status=status.HTTP_200_OK)
+# Prevent role changes/removals that would leave the team without any admin users.
+def _ensure_not_last_admin(team, user_id):
+    remaining_admins = TeamUser.objects.filter(team=team, is_admin=True).exclude(user_id=user_id).count()
+    if remaining_admins == 0:
+        return Response({'error': 'Team must have at least one admin'}, status=status.HTTP_400_BAD_REQUEST)
+    return None
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def join_team_handler(request, team_id):
-	user = request.user
+# List joined teams (GET) or create a team and assign creator as admin (POST) with DRF generic routing.
+class TeamsListCreateView(generics.ListCreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = TeamSerializer
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+    def get_queryset(self):
+        return TeamUser.objects.filter(user=self.request.user).select_related('team').order_by('team__name')
 
-	membership = get_team_membership(team=team, user=user)
-	if membership:
-		output = TeamJoinOutputSerializer(
-			data={
-				'id': team.id,
-				'name': team.name,
-				'url_endpoint': team.url_endpoint,
-				'is_member': True,
-				'is_admin': membership.is_admin,
-				'already_member': True,
-			}
-		)
-		output.is_valid(raise_exception=True)
-		return Response(output.data, status=status.HTTP_200_OK)
+    def list(self, request, *args, **kwargs):
+        memberships = self.get_queryset()
+        output = TeamListItemOutputSerializer(memberships, many=True)
+        return Response(output.data, status=status.HTTP_200_OK)
 
-	TeamUser.objects.create(team=team, user=user, is_admin=False)
-
-	output = TeamJoinOutputSerializer(
-		data={
-			'id': team.id,
-			'name': team.name,
-			'url_endpoint': team.url_endpoint,
-			'is_member': True,
-			'is_admin': False,
-			'already_member': False,
-		}
-	)
-	output.is_valid(raise_exception=True)
-	return Response(output.data, status=status.HTTP_201_CREATED)
+    def perform_create(self, serializer):
+        team = serializer.save()
+        TeamUser.objects.create(team=team, user=self.request.user, is_admin=True)
 
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def team_users_handler(request, team_id):
-	user = request.user
+class TeamScopedAPIView(APIView):
+    """Shared team-id resolution for class-based permission checks."""
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
-
-	membership_error = ensure_team_membership(team=team, user=user)
-	if membership_error:
-		return membership_error
-
-	page, page_size = parse_pagination_params(request)
-
-	members = (
-		TeamUser.objects.filter(team=team)
-		.select_related('user')
-		.order_by('-is_admin', 'user__name')
-	)
-	members, pagination = paginate_queryset(members, page=page, page_size=page_size)
-
-	data = [
-		{
-			'id': member.user.id,
-			'name': member.user.name,
-			'email': member.user.email,
-			'is_admin': member.is_admin,
-			'joined_at': member.joined_at,
-		}
-		for member in members
-	]
-
-	output = TeamUsersListOutputSerializer(data={'items': data, 'pagination': pagination})
-	output.is_valid(raise_exception=True)
-	return Response(output.data, status=status.HTTP_200_OK)
+    def get_team_id_for_permission(self, request):
+        team_id = self.kwargs.get('team_id')
+        if team_id in (None, ''):
+            return None
+        return team_id if Team.objects.filter(id=team_id).exists() else None
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def make_team_admin_handler(request, team_id, user_id):
-	user = request.user
+class TeamBySlugView(APIView):
+    """Resolve team by slug and include membership flags for requester."""
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+    permission_classes = [IsAuthenticated]
 
-	acting_membership = get_team_membership(team=team, user=user)
-	admin_error = ensure_team_admin(membership=acting_membership)
-	if admin_error:
-		return admin_error
+    def get(self, request, url_endpoint, *args, **kwargs):
+        try:
+            team = Team.objects.get(url_endpoint=url_endpoint)
+        except Team.DoesNotExist:
+            return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
 
-	target_membership = get_team_membership(team=team, user_id=user_id, select_related_user=True)
-	if not target_membership:
-		return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
-
-	if not target_membership.is_admin:
-		target_membership.is_admin = True
-		target_membership.save(update_fields=['is_admin'])
-
-	output = TeamUserRoleOutputSerializer(
-		data={
-			'id': target_membership.user_id,
-			'name': target_membership.user.name,
-			'is_admin': True,
-		}
-	)
-	output.is_valid(raise_exception=True)
-	return Response(output.data, status=status.HTTP_200_OK)
+        output = TeamBySlugOutputSerializer(team, context={'request': request})
+        return Response(output.data, status=status.HTTP_200_OK)
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def make_team_member_handler(request, team_id, user_id):
-	user = request.user
+class TeamJoinView(APIView):
+    """Join team endpoint for authenticated users."""
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+    permission_classes = [IsAuthenticated]
 
-	acting_membership = get_team_membership(team=team, user=user)
-	admin_error = ensure_team_admin(membership=acting_membership)
-	if admin_error:
-		return admin_error
+    def post(self, request, team_id, *args, **kwargs):
+        user = request.user
 
-	target_membership = get_team_membership(team=team, user_id=user_id, select_related_user=True)
-	if not target_membership:
-		return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
 
-	if target_membership.is_admin:
-		remaining_admins = TeamUser.objects.filter(team=team, is_admin=True).exclude(user_id=user_id).count()
-		if remaining_admins == 0:
-			return Response({'error': 'Team must have at least one admin'}, status=status.HTTP_400_BAD_REQUEST)
+        membership = get_team_membership(team=team, user=user)
+        if membership:
+            output = TeamJoinOutputSerializer(team, context={'membership': membership, 'already_member': True})
+            return Response(output.data, status=status.HTTP_200_OK)
 
-		target_membership.is_admin = False
-		target_membership.save(update_fields=['is_admin'])
+        new_membership = TeamUser.objects.create(team=team, user=user, is_admin=False)
 
-	output = TeamUserRoleOutputSerializer(
-		data={
-			'id': target_membership.user_id,
-			'name': target_membership.user.name,
-			'is_admin': False,
-		}
-	)
-	output.is_valid(raise_exception=True)
-	return Response(output.data, status=status.HTTP_200_OK)
+        output = TeamJoinOutputSerializer(team, context={'membership': new_membership, 'already_member': False})
+        return Response(output.data, status=status.HTTP_201_CREATED)
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def remove_team_user_handler(request, team_id, user_id):
-	user = request.user
+class TeamUsersView(TeamScopedAPIView):
+    """Return paginated member list for a team."""
 
-	try:
-		team = Team.objects.get(id=team_id)
-	except Team.DoesNotExist:
-		return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+    permission_classes = [IsAuthenticated, IsTeamMember]
 
-	acting_membership = get_team_membership(team=team, user=user)
-	admin_error = ensure_team_admin(membership=acting_membership)
-	if admin_error:
-		return admin_error
+    def get(self, request, team_id, *args, **kwargs):
+        user = request.user
 
-	if int(user_id) == user.id:
-		return Response({'error': 'You cannot remove yourself from the team'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return Response({'error': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
 
-	target_membership = get_team_membership(team=team, user_id=user_id)
-	if not target_membership:
-		return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
+        page, page_size = parse_pagination_params(request)
 
-	if target_membership.is_admin:
-		remaining_admins = TeamUser.objects.filter(team=team, is_admin=True).exclude(user_id=user_id).count()
-		if remaining_admins == 0:
-			return Response({'error': 'Team must have at least one admin'}, status=status.HTTP_400_BAD_REQUEST)
+        members = (
+            TeamUser.objects.filter(team=team)
+            .select_related('user')
+            .order_by('-is_admin', 'user__name')
+        )
+        members, pagination = paginate_queryset(members, page=page, page_size=page_size)
 
-	target_membership.delete()
+        output = TeamUsersListOutputSerializer({'items': members, 'pagination': pagination})
+        return Response(output.data, status=status.HTTP_200_OK)
 
-	output = TeamUserRemovedOutputSerializer(data={'removed_user_id': int(user_id)})
-	output.is_valid(raise_exception=True)
-	return Response(output.data, status=status.HTTP_200_OK)
+
+class TeamUserMakeAdminView(TeamScopedAPIView):
+    """Promote a team member to admin."""
+
+    permission_classes = [IsAuthenticated, IsTeamAdmin]
+
+    def post(self, request, team_id, user_id, *args, **kwargs):
+        team, team_error = _get_team_or_404(team_id)
+        if team_error:
+            return team_error
+
+        target_membership, target_error = _get_target_membership_or_404(
+            team=team,
+            user_id=user_id,
+            select_related_user=True,
+        )
+        if target_error:
+            return target_error
+
+        if not target_membership.is_admin:
+            target_membership.is_admin = True
+            target_membership.save(update_fields=['is_admin'])
+
+        output = TeamUserRoleOutputSerializer(target_membership)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+
+class TeamUserMakeMemberView(TeamScopedAPIView):
+    """Demote an admin back to member while preserving at least one admin."""
+
+    permission_classes = [IsAuthenticated, IsTeamAdmin]
+
+    def post(self, request, team_id, user_id, *args, **kwargs):
+        team, team_error = _get_team_or_404(team_id)
+        if team_error:
+            return team_error
+
+        target_membership, target_error = _get_target_membership_or_404(
+            team=team,
+            user_id=user_id,
+            select_related_user=True,
+        )
+        if target_error:
+            return target_error
+
+        if target_membership.is_admin:
+            last_admin_error = _ensure_not_last_admin(team, user_id)
+            if last_admin_error:
+                return last_admin_error
+
+            target_membership.is_admin = False
+            target_membership.save(update_fields=['is_admin'])
+
+        output = TeamUserRoleOutputSerializer(target_membership)
+        return Response(output.data, status=status.HTTP_200_OK)
+
+
+class TeamUserRemoveView(TeamScopedAPIView):
+    """Remove a member from a team with admin and safety checks."""
+
+    permission_classes = [IsAuthenticated, IsTeamAdmin]
+
+    def post(self, request, team_id, user_id, *args, **kwargs):
+        user = request.user
+
+        team, team_error = _get_team_or_404(team_id)
+        if team_error:
+            return team_error
+
+        if int(user_id) == user.id:
+            return Response({'error': 'You cannot remove yourself from the team'}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_membership, target_error = _get_target_membership_or_404(team=team, user_id=user_id)
+        if target_error:
+            return target_error
+
+        if target_membership.is_admin:
+            last_admin_error = _ensure_not_last_admin(team, user_id)
+            if last_admin_error:
+                return last_admin_error
+
+        target_membership.delete()
+
+        output = TeamUserRemovedOutputSerializer(data={'removed_user_id': int(user_id)})
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
