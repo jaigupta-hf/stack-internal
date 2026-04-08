@@ -1,13 +1,14 @@
 from django.db import transaction
 from django.db.models import F
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from comments.models import Comment
 from posts.models import Post
-from teams.permissions import ensure_team_membership
+from teams.permissions import IsTeamMember
 from reputation.api import apply_reputation_change
 from reputation.constants import (
     DOWNVOTE_RECEIVER_LOSS,
@@ -50,15 +51,11 @@ def _resolve_target(post_id, comment_id):
         return None, None, None, 'Comment not found.'
 
 
-# Resolve a target and enforce same-team access before running vote mutations.
-def _resolve_accessible_target(*, user, post_id, comment_id):
+# Resolve a target and return standardized validation responses before running vote mutations.
+def _resolve_accessible_target(*, post_id, comment_id):
     post, comment, target_team, target_error = _resolve_target(post_id, comment_id)
     if target_error:
         return None, None, None, Response({'error': target_error}, status=status.HTTP_400_BAD_REQUEST)
-
-    membership_error = ensure_team_membership(team=target_team, user=user)
-    if membership_error:
-        return None, None, None, membership_error
 
     return post, comment, target_team, None
 
@@ -154,123 +151,136 @@ def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, curre
         )
 
 
-# Create or update a vote on a post/comment, update aggregate vote counts, and apply post reputation effects.
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def submit_vote(request):
-    user = request.user
+class VoteViewSet(viewsets.GenericViewSet):
+    """CBV endpoints for submitting and removing votes."""
 
-    input_serializer = SubmitVoteInputSerializer(data=request.data)
-    if not input_serializer.is_valid():
-        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    permission_classes = [IsAuthenticated, IsTeamMember]
+    http_method_names = ['post', 'head', 'options']
 
-    validated = input_serializer.validated_data
-    post_id = validated.get('post_id')
-    comment_id = validated.get('comment_id')
-    vote_value = validated['vote']
+    def get_team_id_for_permission(self, request):
+        post_id = request.data.get('post_id')
+        comment_id = request.data.get('comment_id')
 
-    post, comment, target_team, resolve_error = _resolve_accessible_target(
-        user=user,
-        post_id=post_id,
-        comment_id=comment_id,
-    )
-    if resolve_error:
-        return resolve_error
+        if bool(post_id) == bool(comment_id):
+            return None
 
-    with transaction.atomic():
-        vote, created = Vote.objects.select_for_update().get_or_create(
-            user=user,
-            post=post if comment is None else None,
-            comment=comment,
-            defaults={'vote': vote_value},
+        if post_id not in (None, ''):
+            return Post.objects.filter(id=post_id, delete_flag=False).values_list('team_id', flat=True).first()
+
+        comment_team = Comment.objects.filter(id=comment_id).values('post__team_id', 'collection__team_id').first()
+        if not comment_team:
+            return None
+        return comment_team.get('post__team_id') or comment_team.get('collection__team_id')
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+
+        input_serializer = SubmitVoteInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated = input_serializer.validated_data
+        post_id = validated.get('post_id')
+        comment_id = validated.get('comment_id')
+        vote_value = validated['vote']
+
+        post, comment, target_team, resolve_error = _resolve_accessible_target(
+            post_id=post_id,
+            comment_id=comment_id,
         )
+        if resolve_error:
+            return resolve_error
 
-        delta = vote_value
-        previous_vote_value = 0 if created else vote.vote
-        if not created:
-            if vote.vote == vote_value:
-                delta = 0
-            else:
-                delta = vote_value - vote.vote
-                vote.vote = vote_value
-                vote.save(update_fields=['vote'])
-
-        current_vote_count = _update_target_vote_count(
-            post=post,
-            comment=comment,
-            delta=delta,
-        )
-
-        if comment is None:
-            _apply_post_vote_reputation(
-                post=post,
-                team=target_team,
-                voter=user,
-                previous_vote_value=previous_vote_value,
-                current_vote_value=vote_value,
-            )
-
-    return _vote_output_response(
-        post=post,
-        comment=comment,
-        vote=vote.vote,
-        vote_count=current_vote_count,
-    )
-
-
-# Remove an existing vote from a post/comment, rollback aggregate counts, and reverse post reputation effects.
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def remove_vote(request):
-    user = request.user
-
-    input_serializer = VoteTargetInputSerializer(data=request.data)
-    if not input_serializer.is_valid():
-        return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    validated = input_serializer.validated_data
-    post_id = validated.get('post_id')
-    comment_id = validated.get('comment_id')
-
-    post, comment, target_team, resolve_error = _resolve_accessible_target(
-        user=user,
-        post_id=post_id,
-        comment_id=comment_id,
-    )
-    if resolve_error:
-        return resolve_error
-
-    with transaction.atomic():
-        try:
-            vote = Vote.objects.select_for_update().get(
+        with transaction.atomic():
+            vote, created = Vote.objects.select_for_update().get_or_create(
                 user=user,
                 post=post if comment is None else None,
                 comment=comment,
+                defaults={'vote': vote_value},
             )
-        except Vote.DoesNotExist:
-            return Response({'error': 'Vote not found for this target'}, status=status.HTTP_404_NOT_FOUND)
 
-        previous_vote = vote.vote
-        vote.delete()
+            delta = vote_value
+            previous_vote_value = 0 if created else vote.vote
+            if not created:
+                if vote.vote == vote_value:
+                    delta = 0
+                else:
+                    delta = vote_value - vote.vote
+                    vote.vote = vote_value
+                    vote.save(update_fields=['vote'])
 
-        current_vote_count = _update_target_vote_count(
+            current_vote_count = _update_target_vote_count(
+                post=post,
+                comment=comment,
+                delta=delta,
+            )
+
+            if comment is None:
+                _apply_post_vote_reputation(
+                    post=post,
+                    team=target_team,
+                    voter=user,
+                    previous_vote_value=previous_vote_value,
+                    current_vote_value=vote_value,
+                )
+
+        return _vote_output_response(
             post=post,
             comment=comment,
-            delta=-previous_vote,
+            vote=vote.vote,
+            vote_count=current_vote_count,
         )
 
-        if comment is None:
-            _apply_post_vote_reputation(
+    @action(detail=False, methods=['post'], url_path='remove')
+    def remove_vote(self, request, *args, **kwargs):
+        user = request.user
+
+        input_serializer = VoteTargetInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated = input_serializer.validated_data
+        post_id = validated.get('post_id')
+        comment_id = validated.get('comment_id')
+
+        post, comment, target_team, resolve_error = _resolve_accessible_target(
+            post_id=post_id,
+            comment_id=comment_id,
+        )
+        if resolve_error:
+            return resolve_error
+
+        with transaction.atomic():
+            try:
+                vote = Vote.objects.select_for_update().get(
+                    user=user,
+                    post=post if comment is None else None,
+                    comment=comment,
+                )
+            except Vote.DoesNotExist:
+                return Response({'error': 'Vote not found for this target'}, status=status.HTTP_404_NOT_FOUND)
+
+            previous_vote = vote.vote
+            vote.delete()
+
+            current_vote_count = _update_target_vote_count(
                 post=post,
-                team=target_team,
-                voter=user,
-                previous_vote_value=previous_vote,
-                current_vote_value=0,
+                comment=comment,
+                delta=-previous_vote,
             )
 
-    return _vote_output_response(
-        post=post,
-        comment=comment,
-        vote=0,
-        vote_count=current_vote_count,
-    )
+            if comment is None:
+                _apply_post_vote_reputation(
+                    post=post,
+                    team=target_team,
+                    voter=user,
+                    previous_vote_value=previous_vote,
+                    current_vote_value=0,
+                )
+
+        return _vote_output_response(
+            post=post,
+            comment=comment,
+            vote=0,
+            vote_count=current_vote_count,
+        )

@@ -9,7 +9,11 @@ from apps.pagination import parse_pagination_params, paginate_queryset
 from teams.permissions import ensure_team_membership, get_team_membership
 
 from .models import ReputationHistory
-from .serializers import ReputationHistoryOutputSerializer, ReputationHistoryQuerySerializer
+from .serializers import (
+    ReputationHistoryItemOutputSerializer,
+    ReputationHistoryOutputSerializer,
+    ReputationHistoryQuerySerializer,
+)
 
 
 # Return a paginated, day-grouped reputation timeline for a team member after membership checks.
@@ -41,7 +45,18 @@ def list_reputation_history(request):
 
     history = (
         ReputationHistory.objects.filter(team_id=team_id, user_id=target_user_id)
-        .select_related('post')
+        .select_related('post', 'post__parent', 'triggered_by')
+        .only(
+            'id',
+            'points',
+            'reason',
+            'created_at',
+            'triggered_by_id',
+            'post_id',
+            'post__title',
+            'post__type',
+            'post__parent_id',
+        )
         .order_by('-created_at')
     )
     history, pagination = paginate_queryset(history, page=page, page_size=page_size)
@@ -50,40 +65,24 @@ def list_reputation_history(request):
     grouped = OrderedDict()
     for item in history:
         group_key = item.created_at.date().isoformat()
-        if group_key not in grouped:
-            grouped[group_key] = {
-                'date': group_key,
-                'total_points': 0,
-                'items': [],
-            }
+        grouped.setdefault(group_key, []).append(item)
 
-        # Resolve navigation target so answer events still link back to the question thread.
-        reference_type = 'article' if item.post.type >= 20 else 'question'
-        reference_post_id = item.post.parent_id if item.post.type == 1 and item.post.parent_id else item.post_id
-
-        grouped[group_key]['total_points'] += item.points
-        grouped[group_key]['items'].append(
+    groups_output = []
+    for date_key, entries in grouped.items():
+        groups_output.append(
             {
-                'id': item.id,
-                'points': item.points,
-                'reason': item.reason,
-                'created_at': item.created_at,
-                'triggered_by_id': item.triggered_by_id,
-                'post_id': item.post_id,
-                'post_title': item.post.title,
-                'post_type': item.post.type,
-                'reference_type': reference_type,
-                'reference_post_id': reference_post_id,
+                'date': date_key,
+                'total_points': sum(entry.points for entry in entries),
+                'items': entries,
             }
         )
 
     output = ReputationHistoryOutputSerializer(
-        data={
+        {
             'user_id': target_user_id,
-            'groups': list(grouped.values()),
+            'groups': groups_output,
             'pagination': pagination,
         }
     )
-    output.is_valid(raise_exception=True)
 
     return Response(output.data, status=status.HTTP_200_OK)
