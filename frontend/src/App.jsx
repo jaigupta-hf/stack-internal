@@ -13,6 +13,7 @@ import ForYouTab from './pages/navigationTabs/ForYouTab';
 import BookmarksTab from './pages/navigationTabs/BookmarksTab';
 import TagsTab from './pages/navigationTabs/TagsTab';
 import UsersTab from './pages/navigationTabs/UsersTab';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { teamService } from './services/api';
 import { useAuth } from './context/AuthContext';
@@ -36,13 +37,6 @@ const slugToTab = Object.entries(TAB_SLUGS).reduce((acc, [tab, slug]) => {
   acc[slug] = tab;
   return acc;
 }, {});
-
-const getRouteFromPathname = (pathname) => {
-  const segments = pathname.split('/').filter(Boolean);
-  const companySlug = segments[0] || '';
-  const tabSlug = segments[1] || '';
-  return { companySlug, tabSlug };
-};
 
 const buildTeamTabPath = (teamSlug, tab) => {
   const tabSlug = TAB_SLUGS[tab] || TAB_SLUGS.Home;
@@ -135,6 +129,9 @@ const TabIcon = ({ tab }) => {
 };
 
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { teamSlug: routeTeamSlug = '', tabSlug: routeTabSlug = '' } = useParams();
   const { user, loading, setUser } = useAuth();
   const {
     activeTeam,
@@ -176,38 +173,39 @@ function App() {
   const teamSwitcherRef = useRef(null);
   const globalSearchRef = useRef(null);
 
-  const pushTeamTabUrl = (team, tab) => {
+  const pushTeamTabUrl = (team, tab, { replace = false } = {}) => {
     if (!team?.url_endpoint) {
       return;
     }
 
     const nextPath = buildTeamTabPath(team.url_endpoint, tab);
-    if (window.location.pathname !== nextPath) {
-      window.history.pushState({}, '', nextPath);
+    if (location.pathname !== nextPath) {
+      navigate(nextPath, { replace });
     }
   };
 
   const replaceTeamsUrl = () => {
-    if (window.location.pathname !== '/') {
-      window.history.replaceState({}, '', '/');
+    if (location.pathname !== '/') {
+      navigate('/', { replace: true });
     }
   };
 
   const setProfileInUrl = (profileValue, replace = false) => {
-    const url = new URL(window.location.href);
+    const searchParams = new URLSearchParams(location.search);
     if (profileValue === null || profileValue === undefined || profileValue === '') {
-      url.searchParams.delete('profile');
+      searchParams.delete('profile');
     } else {
-      url.searchParams.set('profile', String(profileValue));
+      searchParams.set('profile', String(profileValue));
     }
 
-    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
-    if (replace) {
-      window.history.replaceState(window.history.state, '', nextUrl);
-      return;
-    }
-
-    window.history.pushState(window.history.state, '', nextUrl);
+    const search = searchParams.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : '',
+      },
+      { replace },
+    );
   };
 
   const hydrateTeamFromRoute = async (companySlug, tabSlug) => {
@@ -228,8 +226,8 @@ function App() {
     setActiveTab(nextTab);
 
     const canonicalPath = buildTeamTabPath(teamFromPath.url_endpoint, nextTab);
-    if (window.location.pathname !== canonicalPath) {
-      window.history.replaceState({}, '', canonicalPath);
+    if (location.pathname !== canonicalPath) {
+      navigate(canonicalPath, { replace: true });
     }
   };
 
@@ -264,88 +262,34 @@ function App() {
   }, [globalSearchOpen]);
 
   useEffect(() => {
-    const openTeamFromUrl = async () => {
-      if (!user) {
-        return;
-      }
-
-      const { companySlug, tabSlug } = getRouteFromPathname(window.location.pathname);
-      if (!companySlug) {
-        return;
-      }
-
-      try {
-        await hydrateTeamFromRoute(companySlug, tabSlug);
-        const profileFromUrl = getProfileUserIdFromSearch(window.location.search);
-        if (profileFromUrl === 'me') {
-          setProfileUserId(null);
-          setShowProfilePage(true);
-        } else if (profileFromUrl) {
-          setProfileUserId(profileFromUrl);
-          setShowProfilePage(true);
-        } else {
-          setShowProfilePage(false);
-          setProfileUserId(null);
-        }
-      } catch {
-        replaceTeamsUrl();
-      }
-    };
-
-    if (!activeTeam) {
-      openTeamFromUrl();
+    if (!user) {
+      return;
     }
-  }, [user, activeTeam]);
 
-  useEffect(() => {
-    const onPopState = async () => {
-      if (!user) {
-        return;
-      }
+    if (!routeTeamSlug) {
+      setActiveTeam(null);
+      setActiveTab('Home');
+      setIsTeamMember(true);
+      setIsTeamAdmin(false);
+      setJoinTeamError('');
+      return;
+    }
 
-      const { companySlug, tabSlug } = getRouteFromPathname(window.location.pathname);
-      if (!companySlug) {
-        setActiveTeam(null);
-        setActiveTab('Home');
-        setIsTeamMember(true);
-        setIsTeamAdmin(false);
-        setJoinTeamError('');
-        return;
-      }
-
-      if (activeTeam && activeTeam.url_endpoint === companySlug) {
-        const mappedTab = slugToTab[tabSlug] || 'Home';
+    const syncTeamFromRoute = async () => {
+      if (activeTeam?.url_endpoint === routeTeamSlug) {
+        const mappedTab = slugToTab[routeTabSlug] || 'Home';
         const nextTab = isTeamMember && (isTeamAdmin || mappedTab !== 'Admin Settings') ? mappedTab : 'Home';
         setActiveTab(nextTab);
 
-        const profileFromUrl = getProfileUserIdFromSearch(window.location.search);
-        if (profileFromUrl === 'me') {
-          setProfileUserId(null);
-          setShowProfilePage(true);
-        } else if (profileFromUrl) {
-          setProfileUserId(profileFromUrl);
-          setShowProfilePage(true);
-        } else {
-          setShowProfilePage(false);
-          setProfileUserId(null);
+        const canonicalPath = buildTeamTabPath(routeTeamSlug, nextTab);
+        if (location.pathname !== canonicalPath) {
+          navigate(canonicalPath, { replace: true });
         }
         return;
       }
 
       try {
-        await hydrateTeamFromRoute(companySlug, tabSlug);
-
-        const profileFromUrl = getProfileUserIdFromSearch(window.location.search);
-        if (profileFromUrl === 'me') {
-          setProfileUserId(null);
-          setShowProfilePage(true);
-        } else if (profileFromUrl) {
-          setProfileUserId(profileFromUrl);
-          setShowProfilePage(true);
-        } else {
-          setShowProfilePage(false);
-          setProfileUserId(null);
-        }
+        await hydrateTeamFromRoute(routeTeamSlug, routeTabSlug);
       } catch {
         replaceTeamsUrl();
         setActiveTeam(null);
@@ -356,9 +300,46 @@ function App() {
       }
     };
 
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, [user, activeTeam, isTeamMember, isTeamAdmin]);
+    syncTeamFromRoute();
+  }, [
+    user,
+    routeTeamSlug,
+    routeTabSlug,
+    activeTeam?.url_endpoint,
+    isTeamMember,
+    isTeamAdmin,
+    location.pathname,
+    navigate,
+    setActiveTeam,
+    setActiveTab,
+    setIsTeamMember,
+    setIsTeamAdmin,
+    setJoinTeamError,
+  ]);
+
+  useEffect(() => {
+    if (!routeTeamSlug) {
+      setShowProfilePage(false);
+      setProfileUserId(null);
+      return;
+    }
+
+    const profileFromUrl = getProfileUserIdFromSearch(location.search);
+    if (profileFromUrl === 'me') {
+      setProfileUserId(null);
+      setShowProfilePage(true);
+      return;
+    }
+
+    if (profileFromUrl) {
+      setProfileUserId(profileFromUrl);
+      setShowProfilePage(true);
+      return;
+    }
+
+    setShowProfilePage(false);
+    setProfileUserId(null);
+  }, [location.search, routeTeamSlug, setProfileUserId, setShowProfilePage]);
 
   const handleLoginSuccess = (userData) => {
     setUser(userData);
@@ -433,7 +414,7 @@ function App() {
     setShowProfilePage(false);
     setProfileUserId(null);
     setActiveTab('Questions');
-    window.history.pushState({}, '', nextPath);
+    navigate(nextPath);
   };
 
   const handleOpenUserProfile = (selectedUserId) => {
@@ -467,7 +448,7 @@ function App() {
     setShowProfilePage(false);
     setProfileUserId(null);
     setActiveTab(nextTab);
-    window.history.pushState({}, '', nextPath);
+    navigate(nextPath);
     window.dispatchEvent(new PopStateEvent('popstate'));
     setGlobalSearchQuery('');
     setGlobalSearchResults([]);
@@ -516,7 +497,7 @@ function App() {
     setShowProfilePage(false);
     setProfileUserId(null);
     setActiveTab(nextTab);
-    window.history.pushState({}, '', nextPath);
+    navigate(nextPath);
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
@@ -546,7 +527,7 @@ function App() {
     setShowProfilePage(false);
     setProfileUserId(null);
     setActiveTab(nextTab);
-    window.history.pushState({}, '', nextPath);
+    navigate(nextPath);
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
