@@ -6,6 +6,7 @@ import {
   CollectionsTabRoute,
   ForYouTabRoute,
   HomeTabRoute,
+  LegacyProfileRoute,
   ProfileRoute,
   QuestionTabRoute,
   TagsTabRoute,
@@ -76,9 +77,13 @@ const router = createBrowserRouter([
         handle: { tab: 'Admin Settings' },
       },
       {
-        path: 'profile',
+        path: 'users/:userId',
         element: <ProfileRoute />,
         handle: { tab: 'Profile' },
+      },
+      {
+        path: 'profile',
+        element: <LegacyProfileRoute />,
       },
       {
         path: '*',

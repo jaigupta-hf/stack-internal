@@ -8,8 +8,6 @@ export function UIProvider({ children }) {
   const { activeTeam } = useTeam();
 
   const [teamSwitcherOpen, setTeamSwitcherOpen] = useState(false);
-  const [showProfilePage, setShowProfilePage] = useState(false);
-  const [profileUserId, setProfileUserId] = useState(null);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState([]);
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
@@ -47,10 +45,6 @@ export function UIProvider({ children }) {
   const value = useMemo(() => ({
     teamSwitcherOpen,
     setTeamSwitcherOpen,
-    showProfilePage,
-    setShowProfilePage,
-    profileUserId,
-    setProfileUserId,
     globalSearchQuery,
     setGlobalSearchQuery,
     globalSearchResults,
@@ -63,8 +57,6 @@ export function UIProvider({ children }) {
     setGlobalSearchOpen,
   }), [
     teamSwitcherOpen,
-    showProfilePage,
-    profileUserId,
     globalSearchQuery,
     globalSearchResults,
     globalSearchLoading,
