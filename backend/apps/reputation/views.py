@@ -45,7 +45,18 @@ def list_reputation_history(request):
 
     history = (
         ReputationHistory.objects.filter(team_id=team_id, user_id=target_user_id)
-        .select_related('post')
+        .select_related('post', 'post__parent', 'triggered_by')
+        .only(
+            'id',
+            'points',
+            'reason',
+            'created_at',
+            'triggered_by_id',
+            'post_id',
+            'post__title',
+            'post__type',
+            'post__parent_id',
+        )
         .order_by('-created_at')
     )
     history, pagination = paginate_queryset(history, page=page, page_size=page_size)
