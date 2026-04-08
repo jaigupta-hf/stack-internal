@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { postService } from '../../services/api';
 import AsyncStateView from '../../components/AsyncStateView';
 import { formatHomeQuestionTime } from '../../utils/dateTime';
@@ -6,36 +7,28 @@ import { useTeam } from '../../context/TeamContext';
 
 function HomeTab({ onQuestionClick, onOpenUserProfile }) {
   const { activeTeam } = useTeam();
-  const [trendingQuestions, setTrendingQuestions] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  useEffect(() => {
-    async function fetchTrending() {
-      if (!activeTeam?.id) return;
-      setLoading(true);
-      setError('');
-      try {
-        const data = await postService.listQuestions(activeTeam.id);
-        const sorted = data.sort((a, b) => {
-          const voteA = Number(a.vote_count || 0);
-          const voteB = Number(b.vote_count || 0);
-          if (voteA !== voteB) return voteB - voteA;
+  const trendingQuery = useQuery({
+    queryKey: ['home', 'trending-questions', activeTeam?.id],
+    queryFn: async () => {
+      const data = await postService.listQuestions(activeTeam.id);
+      const sorted = [...data].sort((a, b) => {
+        const voteA = Number(a.vote_count || 0);
+        const voteB = Number(b.vote_count || 0);
+        if (voteA !== voteB) return voteB - voteA;
 
-          const viewsA = Number(a.views_count || 0);
-          const viewsB = Number(b.views_count || 0);
-          return viewsB - viewsA;
-        });
-        setTrendingQuestions(sorted.slice(0, 5));
-      } catch (err) {
-        console.error(err);
-        setError('Failed to load trending questions.');
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchTrending();
-  }, [activeTeam?.id]);
+        const viewsA = Number(a.views_count || 0);
+        const viewsB = Number(b.views_count || 0);
+        return viewsB - viewsA;
+      });
+      return sorted.slice(0, 5);
+    },
+    enabled: Boolean(activeTeam?.id),
+  });
+
+  const trendingQuestions = useMemo(() => trendingQuery.data ?? [], [trendingQuery.data]);
+  const loading = trendingQuery.isLoading;
+  const error = trendingQuery.error?.response?.data?.error || (trendingQuery.error ? 'Failed to load trending questions.' : '');
 
   return (
     <div>
