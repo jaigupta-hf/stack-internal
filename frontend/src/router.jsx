@@ -1,5 +1,6 @@
 import { Navigate, createBrowserRouter } from 'react-router-dom';
-import App, {
+import App from './App.jsx';
+import {
   ArticlesTabRoute,
   BookmarksTabRoute,
   CollectionsTabRoute,
@@ -9,7 +10,7 @@ import App, {
   QuestionTabRoute,
   TagsTabRoute,
   UsersTabRoute,
-} from './App.jsx';
+} from './routes/teamRouteElements.jsx';
 import AppIndexPage from './pages/AppIndexPage.jsx';
 
 function TeamSlugRedirect() {
