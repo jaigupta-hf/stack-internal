@@ -1,7 +1,10 @@
 from django.urls import path
-from .views import create_comment, comment_detail
+from .views import CommentViewSet
+
+comment_create_view = CommentViewSet.as_view({'post': 'create'})
+comment_detail_view = CommentViewSet.as_view({'patch': 'partial_update', 'delete': 'destroy'})
 
 urlpatterns = [
-    path('', create_comment, name='create-comment'),
-    path('<int:comment_id>/', comment_detail, name='comment-detail'),
+    path('', comment_create_view, name='create-comment'),
+    path('<int:pk>/', comment_detail_view, name='comment-detail'),
 ]

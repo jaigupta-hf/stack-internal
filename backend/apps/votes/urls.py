@@ -1,8 +1,11 @@
 from django.urls import path
 
-from .views import submit_vote, remove_vote
+from .views import VoteViewSet
+
+submit_vote_view = VoteViewSet.as_view({'post': 'create'})
+remove_vote_view = VoteViewSet.as_view({'post': 'remove_vote'})
 
 urlpatterns = [
-    path('', submit_vote, name='submit-vote'),
-    path('remove/', remove_vote, name='remove-vote'),
+    path('', submit_vote_view, name='submit-vote'),
+    path('remove/', remove_vote_view, name='remove-vote'),
 ]
