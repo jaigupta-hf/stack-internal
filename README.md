@@ -26,31 +26,6 @@ Create environment files:
 - `backend/.env`
 - `frontend/.env`
 
-### Backend `.env`
-
-Required variables:
-
-- `SECRET_KEY`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_HOST`
-- `DB_PORT`
-- `GOOGLE_OAUTH_CLIENT_ID`
-
-### Frontend `.env`
-
-Required variables:
-
-- `VITE_GOOGLE_CLIENT_ID`
-- `VITE_API_URL`
-
-`VITE_API_URL` should point to your backend host (without `/api`), for example:
-
-```env
-VITE_API_URL=http://localhost:8000
-```
-
 ## Backend Setup
 
 ```bash
