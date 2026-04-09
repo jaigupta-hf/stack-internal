@@ -92,15 +92,10 @@ Recommended conventions as the app grows:
 	- `list*Page(...)` for full payload (`items + pagination`)
 	- `list*(...)` for backward-compatible array usage
 
-## Local Development
+## Setup
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Project setup and run instructions are centralized in the repository root README:
 
-Set env vars in `frontend/.env`:
+- `../README.md`
 
-- `VITE_GOOGLE_CLIENT_ID`
-- `VITE_API_URL`
+This frontend README focuses on architecture, routing, and integration patterns.

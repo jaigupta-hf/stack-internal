@@ -89,29 +89,13 @@ backend/
 - `/api/collections/`: collections
 - `/api/votes/`: votes
 
-## Local Development
+## Setup
 
-```bash
-cd backend
-source venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver 3000
-```
+Project setup and run instructions are centralized in the repository root README:
 
-## Environment Variables
+- `../README.md`
 
-Configuration is loaded from `backend/.env`.
-
-| Variable | Purpose |
-|---|---|
-| `SECRET_KEY` | Django secret key |
-| `DB_NAME` | PostgreSQL database name |
-| `DB_USER` | PostgreSQL username |
-| `DB_PASSWORD` | PostgreSQL password |
-| `DB_HOST` | PostgreSQL host |
-| `DB_PORT` | PostgreSQL port |
-| `GOOGLE_OAUTH_CLIENT_ID` | Google client ID for token verification |
+This backend README focuses on architecture, domain boundaries, and API conventions.
 
 ## Important Backend Conventions
 
