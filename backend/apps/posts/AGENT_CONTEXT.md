@@ -10,6 +10,12 @@ It handles:
 - Bookmarks and followed-post lists.
 - Rich detail/list/search payloads.
 
+Current enforcement highlights:
+- Question edit/delete/undelete is author-only.
+- Answer edit/delete/undelete is author-only.
+- Article edit is author-only.
+- Question bounty offer/award and mention removal are author-only.
+
 ## Main Files
 - `models.py`: `Post`, `Bookmark`, `PostFollow`.
 - `views.py`: entry module for answer lifecycle, question search, and bookmark endpoints.
@@ -85,6 +91,7 @@ Question/article CRUD is implemented in DRF ViewSets. Compatibility aliases like
 - Notifications emitted for answer/comment/edit/approval events.
 - Reputation adjusted for accepts, upvotes/downvotes, and bounty actions.
 - Counter fields (`answer_count`, `vote_count`, `bookmarks_count`, `views_count`) updated incrementally.
+- Expired offered bounties are cleaned lazily on question reads and bounty actions (bounty row deleted, `Post.bounty_amount` reset to `0`).
 
 ## Developer Guidance
 - Keep question/article CRUD and question actions in `viewsets.py`; keep answer/search/bookmark concerns in their focused modules.
