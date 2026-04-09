@@ -36,19 +36,29 @@ def normalize_tag_names(tag_names):
 def tag_prefetch(to_attr='question_tag_posts'):
     return Prefetch(
         'tag_posts',
-        queryset=TagPost.objects.select_related('tag').order_by('id'),
+        queryset=TagPost.objects.select_related('tag').only(
+            'id',
+            'tag_id',
+            'post_id',
+            'tag__id',
+            'tag__name',
+        ),
         to_attr=to_attr,
     )
 
 
 # Handle serialize post tags.
 def serialize_post_tags(post, prefetched_attr='question_tag_posts'):
+    tag_posts = sorted(
+        getattr(post, prefetched_attr, []),
+        key=lambda item: item.id,
+    )
     return [
         {
             'id': tag_post.tag_id,
             'name': tag_post.tag.name,
         }
-        for tag_post in getattr(post, prefetched_attr, [])
+        for tag_post in tag_posts
     ]
 
 

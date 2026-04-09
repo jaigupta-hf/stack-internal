@@ -28,7 +28,23 @@ class NotificationListView(GenericAPIView):
 
         notifications = (
             Notification.objects.filter(user=request.user, post__team_id=team_id)
-            .select_related('post', 'triggered_by', 'post__parent')
+            .select_related('post', 'triggered_by')
+            .only(
+                'id',
+                'post_id',
+                'user_id',
+                'triggered_by_id',
+                'reason',
+                'created_at',
+                'is_read',
+                'post__id',
+                'post__title',
+                'post__type',
+                'post__delete_flag',
+                'post__parent_id',
+                'triggered_by__id',
+                'triggered_by__name',
+            )
             .order_by('-created_at')[:MAX_NOTIFICATION_LIST_ITEMS]
         )
 
