@@ -1,6 +1,11 @@
+from datetime import timedelta
+
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from reputation.constants import BOUNTY_AMOUNT
+from reputation.models import Bounty
 from teams.models import Team, TeamUser
 from users.models import User
 
@@ -140,6 +145,70 @@ class RouterEndpointTests(APITestCase):
 
 		delete_response = self.client.post(f'/api/posts/questions/{question.id}/delete/')
 		self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_question_detail_deletes_expired_offered_bounty(self):
+		question = Post.objects.create(
+			type=POST_TYPE_QUESTION,
+			title='Question with expired bounty',
+			body='Body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+		Bounty.objects.create(
+			post=question,
+			offered_by=self.user,
+			amount=BOUNTY_AMOUNT,
+			status=Bounty.STATUS_OFFERED,
+			reason='Draw attention',
+			start_time=timezone.now() - timedelta(days=8),
+			end_time=timezone.now() - timedelta(minutes=1),
+		)
+		Post.objects.filter(id=question.id).update(bounty_amount=BOUNTY_AMOUNT)
+
+		detail_response = self.client.get(f'/api/posts/questions/{question.id}/')
+		self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+
+		question.refresh_from_db(fields=['bounty_amount'])
+		self.assertEqual(question.bounty_amount, 0)
+		self.assertFalse(Bounty.objects.filter(post=question, status=Bounty.STATUS_OFFERED).exists())
+		self.assertIsNone(detail_response.data['bounty'])
+
+	def test_offer_bounty_removes_expired_offered_bounty_then_creates_new_one(self):
+		question = Post.objects.create(
+			type=POST_TYPE_QUESTION,
+			title='Question with stale bounty',
+			body='Body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+		Bounty.objects.create(
+			post=question,
+			offered_by=self.user,
+			amount=BOUNTY_AMOUNT,
+			status=Bounty.STATUS_OFFERED,
+			reason='Draw attention',
+			start_time=timezone.now() - timedelta(days=8),
+			end_time=timezone.now() - timedelta(minutes=1),
+		)
+		Post.objects.filter(id=question.id).update(bounty_amount=BOUNTY_AMOUNT)
+		TeamUser.objects.filter(team=self.team, user=self.user).update(reputation=200)
+
+		offer_response = self.client.post(
+			f'/api/posts/questions/{question.id}/bounty/offer/',
+			{'reason': 'Draw attention'},
+			format='json',
+		)
+		self.assertEqual(offer_response.status_code, status.HTTP_200_OK)
+
+		question.refresh_from_db(fields=['bounty_amount'])
+		self.assertEqual(question.bounty_amount, BOUNTY_AMOUNT)
+		offered_bounties = Bounty.objects.filter(post=question, status=Bounty.STATUS_OFFERED)
+		self.assertEqual(offered_bounties.count(), 1)
+		self.assertGreater(offered_bounties.first().end_time, timezone.now())
 
 	def test_answer_update_requires_answer_author(self):
 		question = Post.objects.create(
