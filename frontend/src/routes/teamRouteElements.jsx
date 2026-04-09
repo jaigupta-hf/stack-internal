@@ -11,6 +11,41 @@ const TagsTab = lazy(() => import('../pages/navigationTabs/TagsTab'));
 const UsersTab = lazy(() => import('../pages/navigationTabs/UsersTab'));
 const ProfilePage = lazy(() => import('../pages/ProfilePage'));
 
+export const preloadTabComponent = (tabSlug) => {
+  switch (tabSlug) {
+    case 'Home':
+      import('../pages/navigationTabs/HomeTab');
+      break;
+    case 'Questions':
+      import('../pages/navigationTabs/QuestionTab');
+      break;
+    case 'Articles':
+      import('../pages/navigationTabs/ArticlesTab');
+      break;
+    case 'Collections':
+    case 'Admin Settings':
+      import('../pages/navigationTabs/CollectionsTab');
+      break;
+    case 'For You':
+      import('../pages/navigationTabs/ForYouTab');
+      break;
+    case 'Bookmarks':
+      import('../pages/navigationTabs/BookmarksTab');
+      break;
+    case 'Tags':
+      import('../pages/navigationTabs/TagsTab');
+      break;
+    case 'Users':
+      import('../pages/navigationTabs/UsersTab');
+      break;
+    case 'Profile':
+      import('../pages/ProfilePage');
+      break;
+    default:
+      break;
+  }
+};
+
 const parseProfileUserId = (userId) => {
   if (!userId || userId === 'me') {
     return null;

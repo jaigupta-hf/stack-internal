@@ -15,6 +15,7 @@ import { useTeam } from './context/TeamContext';
 import { useUI } from './context/UIContext';
 import { TABS } from './constants/navigation';
 import TabIcon from './components/Sidebar/TabIcon';
+import { preloadTabComponent } from './routes/teamRouteElements';
 
 export const TAB_SLUGS = {
   Home: 'home',
@@ -580,6 +581,8 @@ function App() {
                   <div key={tab}>
                     <button
                       onClick={() => handleTabChange(tab)}
+                      onMouseEnter={() => preloadTabComponent(tab)}
+                      onFocus={() => preloadTabComponent(tab)}
                       disabled={!isTeamMember}
                       className={
                         selected
