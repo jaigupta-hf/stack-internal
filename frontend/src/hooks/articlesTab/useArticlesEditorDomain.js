@@ -3,6 +3,7 @@ import { postService, tagService } from '../../services/api';
 import { ARTICLE_TYPE_OPTIONS } from './articleTabConstants';
 
 function useArticlesEditorDomain({
+  currentUserId,
   teamId,
   selectedArticle,
   setSelectedArticle,
@@ -226,6 +227,10 @@ function useArticlesEditorDomain({
       return;
     }
 
+    if (Number(selectedArticle.user || 0) !== Number(currentUserId || 0)) {
+      return;
+    }
+
     setEditTitle(selectedArticle.title || '');
     setEditBody(selectedArticle.body || '');
     setEditArticleType(Number(selectedArticle.type) || 22);
@@ -247,6 +252,11 @@ function useArticlesEditorDomain({
 
   const handleSaveArticleEdit = async () => {
     if (!selectedArticle) {
+      return;
+    }
+
+    if (Number(selectedArticle.user || 0) !== Number(currentUserId || 0)) {
+      setEditError('Only the article author can edit this article.');
       return;
     }
 

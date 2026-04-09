@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { postService, voteService } from '../../services/api';
 
 function useQuestionAnswersDomain({
+  currentUserId,
   selectedQuestion,
   setSelectedQuestion,
   setQuestions,
@@ -62,6 +63,10 @@ function useQuestionAnswersDomain({
   };
 
   const handleStartAnswerEdit = (answer) => {
+    if (Number(answer?.user || 0) !== Number(currentUserId || 0)) {
+      return;
+    }
+
     setEditingAnswerId(answer.id);
     setEditAnswerBody(answer.body || '');
     setEditAnswerError('');
@@ -69,6 +74,12 @@ function useQuestionAnswersDomain({
 
   const handleSaveAnswerEdit = async () => {
     if (!editingAnswerId) {
+      return;
+    }
+
+    const targetAnswer = (selectedQuestion?.answers || []).find((item) => item.id === editingAnswerId);
+    if (!targetAnswer || Number(targetAnswer.user || 0) !== Number(currentUserId || 0)) {
+      setEditAnswerError('Only the answer author can edit this answer.');
       return;
     }
 
@@ -148,6 +159,12 @@ function useQuestionAnswersDomain({
       return;
     }
 
+    const targetAnswer = (selectedQuestion.answers || []).find((item) => item.id === answerId);
+    if (!targetAnswer || Number(targetAnswer.user || 0) !== Number(currentUserId || 0)) {
+      setVoteError('Only the answer author can delete this answer.');
+      return;
+    }
+
     try {
       setDeletingAnswerId(answerId);
       setVoteError('');
@@ -180,6 +197,12 @@ function useQuestionAnswersDomain({
 
   const handleUndeleteAnswer = async (answerId) => {
     if (!selectedQuestion) {
+      return;
+    }
+
+    const targetAnswer = (selectedQuestion.answers || []).find((item) => item.id === answerId);
+    if (!targetAnswer || Number(targetAnswer.user || 0) !== Number(currentUserId || 0)) {
+      setVoteError('Only the answer author can undelete this answer.');
       return;
     }
 

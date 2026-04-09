@@ -3,8 +3,10 @@ import CommentSection, {
   buildCommentItemKey,
 } from '../CommentSection';
 import VotePanel from '../VotePanel';
+import { useAuth } from '../../context/AuthContext';
 
 function ArticleDetailPanel({ controller, onOpenUserProfile }) {
+  const { user } = useAuth();
   const {
     selectedArticle,
     typeLabelByCode,
@@ -68,6 +70,9 @@ function ArticleDetailPanel({ controller, onOpenUserProfile }) {
   if (!selectedArticle) {
     return null;
   }
+
+  const currentUserId = Number(user?.id || 0);
+  const isArticleAuthor = Number(selectedArticle.user || 0) === currentUserId;
 
   return (
     <div className="mt-6 w-full rounded-3xl border border-white/10 bg-[#111821] p-6 shadow-2xl shadow-black/35 sm:p-8">
@@ -262,7 +267,7 @@ function ArticleDetailPanel({ controller, onOpenUserProfile }) {
             </div>
 
             <div className="mt-3 flex items-start gap-3">
-              {!isEditingArticle ? (
+              {!isEditingArticle && isArticleAuthor ? (
                 <button
                   type="button"
                   onClick={handleStartArticleEdit}

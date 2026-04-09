@@ -4,20 +4,23 @@ from rest_framework.test import APITestCase
 from teams.models import Team, TeamUser
 from users.models import User
 
-from .constants import (
+from posts.constants import (
 	POST_TYPE_ANNOUNCEMENT,
+	POST_TYPE_ANSWER,
 	POST_TYPE_HOW_TO_GUIDE,
 	POST_TYPE_POLICY,
 	POST_TYPE_QUESTION,
 )
-from .models import Post
+from posts.models import Post
 
 
 class RouterEndpointTests(APITestCase):
 	def setUp(self):
 		self.user = User.objects.create(name='Alice', email='alice@example.com')
+		self.other_user = User.objects.create(name='Bob', email='bob@example.com')
 		self.team = Team.objects.create(name='Platform', url_endpoint='platform')
 		TeamUser.objects.create(team=self.team, user=self.user, is_admin=True)
+		TeamUser.objects.create(team=self.team, user=self.other_user, is_admin=False)
 		self.client.force_authenticate(user=self.user)
 
 	def test_question_router_and_alias_endpoints(self):
@@ -114,3 +117,81 @@ class RouterEndpointTests(APITestCase):
 		)
 		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 		self.assertEqual(create_response.data['type'], POST_TYPE_HOW_TO_GUIDE)
+
+	def test_question_update_and_delete_require_question_author(self):
+		question = Post.objects.create(
+			type=POST_TYPE_QUESTION,
+			title='Author question',
+			body='Author question body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+
+		self.client.force_authenticate(user=self.other_user)
+
+		update_response = self.client.patch(
+			f'/api/posts/questions/{question.id}/',
+			{'title': 'Unauthorized edit', 'body': 'Unauthorized body', 'tags': ['python']},
+			format='json',
+		)
+		self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+		delete_response = self.client.post(f'/api/posts/questions/{question.id}/delete/')
+		self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_answer_update_requires_answer_author(self):
+		question = Post.objects.create(
+			type=POST_TYPE_QUESTION,
+			title='Question',
+			body='Question body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+		answer = Post.objects.create(
+			type=POST_TYPE_ANSWER,
+			title='',
+			body='Author answer body',
+			parent=question,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+
+		self.client.force_authenticate(user=self.other_user)
+
+		update_response = self.client.patch(
+			f'/api/posts/answers/{answer.id}/',
+			{'body': 'Unauthorized answer edit'},
+			format='json',
+		)
+		self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_article_update_requires_article_author(self):
+		article = Post.objects.create(
+			type=POST_TYPE_ANNOUNCEMENT,
+			title='Author article',
+			body='Author article body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+			answer_count=None,
+		)
+
+		self.client.force_authenticate(user=self.other_user)
+
+		update_response = self.client.patch(
+			f'/api/posts/articles/{article.id}/',
+			{
+				'title': 'Unauthorized article edit',
+				'body': 'Unauthorized article body',
+				'type': POST_TYPE_POLICY,
+				'tags': ['backend'],
+			},
+			format='json',
+		)
+		self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)

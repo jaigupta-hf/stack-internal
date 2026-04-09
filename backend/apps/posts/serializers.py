@@ -82,8 +82,6 @@ class UpdateAnswerOutputSerializer(serializers.Serializer):
     modified_at = serializers.DateTimeField()
     user = serializers.IntegerField()
     user_name = serializers.CharField()
-    edited_by = serializers.IntegerField(allow_null=True)
-    edited_by_username = serializers.CharField(allow_null=True)
     vote_count = serializers.IntegerField()
 
 
@@ -233,8 +231,6 @@ class QuestionAnswerOutputSerializer(serializers.Serializer):
     modified_at = serializers.DateTimeField()
     user = serializers.IntegerField()
     user_name = serializers.CharField()
-    edited_by = serializers.IntegerField(allow_null=True)
-    edited_by_username = serializers.CharField(allow_null=True)
     vote_count = serializers.IntegerField()
     current_user_vote = serializers.IntegerField()
     comments = QuestionCommentOutputSerializer(many=True)
@@ -273,8 +269,6 @@ class QuestionDetailOutputSerializer(serializers.Serializer):
     team = serializers.IntegerField()
     user = serializers.IntegerField()
     user_name = serializers.CharField()
-    edited_by = serializers.IntegerField(allow_null=True)
-    edited_by_username = serializers.CharField(allow_null=True)
     views_count = serializers.IntegerField()
     vote_count = serializers.IntegerField()
     bookmarks_count = serializers.IntegerField()
@@ -713,8 +707,6 @@ class QuestionDetailModelSerializer(serializers.ModelSerializer):
     team = serializers.IntegerField(source='team_id', read_only=True)
     user = serializers.IntegerField(source='user_id', read_only=True)
     user_name = serializers.SerializerMethodField()
-    edited_by = serializers.IntegerField(source='edited_by_id', allow_null=True, read_only=True)
-    edited_by_username = serializers.CharField(source='edited_by.name', allow_null=True, read_only=True)
     current_user_vote = serializers.SerializerMethodField()
     approved_answer = serializers.IntegerField(source='approved_answer_id', allow_null=True, read_only=True)
     can_approve_answers = serializers.SerializerMethodField()
@@ -748,8 +740,6 @@ class QuestionDetailModelSerializer(serializers.ModelSerializer):
             'team',
             'user',
             'user_name',
-            'edited_by',
-            'edited_by_username',
             'views_count',
             'vote_count',
             'bookmarks_count',
@@ -859,8 +849,6 @@ class QuestionDetailModelSerializer(serializers.ModelSerializer):
                 'modified_at': answer.modified_at,
                 'user': answer.user_id,
                 'user_name': self._display_name_for(answer.user_id),
-                'edited_by': answer.edited_by_id,
-                'edited_by_username': answer.edited_by.name if answer.edited_by else None,
                 'vote_count': answer.vote_count,
                 'current_user_vote': post_vote_map.get(answer.id, 0),
                 'comments': comments_by_post_id.get(answer.id, []),

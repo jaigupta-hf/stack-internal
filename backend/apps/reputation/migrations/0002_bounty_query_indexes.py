@@ -9,16 +9,19 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql=(
+                "DO $$ "
+                "BEGIN "
+                "IF to_regclass('bounty') IS NOT NULL THEN "
                 "CREATE INDEX IF NOT EXISTS bnty_post_start_idx "
-                "ON bounty (post_id, start_time DESC);"
-            ),
-            reverse_sql="DROP INDEX IF EXISTS bnty_post_start_idx;",
-        ),
-        migrations.RunSQL(
-            sql=(
+                "ON bounty (post_id, start_time DESC); "
                 "CREATE INDEX IF NOT EXISTS bnty_post_status_start_idx "
-                "ON bounty (post_id, status, start_time DESC);"
+                "ON bounty (post_id, status, start_time DESC); "
+                "END IF; "
+                "END $$;"
             ),
-            reverse_sql="DROP INDEX IF EXISTS bnty_post_status_start_idx;",
+            reverse_sql=(
+                "DROP INDEX IF EXISTS bnty_post_start_idx;"
+                "DROP INDEX IF EXISTS bnty_post_status_start_idx;"
+            ),
         ),
     ]

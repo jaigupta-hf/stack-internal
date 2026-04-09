@@ -189,7 +189,7 @@ def update_answer(request, answer_id):
 	user = request.user
 
 	try:
-		answer = Post.objects.select_related('user', 'edited_by').get(id=answer_id, type=1, delete_flag=False)
+		answer = Post.objects.select_related('user').get(id=answer_id, type=1, delete_flag=False)
 	except Post.DoesNotExist:
 		return Response({'error': 'Answer not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -197,13 +197,15 @@ def update_answer(request, answer_id):
 	if membership_error:
 		return membership_error
 
+	if answer.user_id != user.id:
+		return Response({'error': 'Only the answer author can edit this answer'}, status=status.HTTP_403_FORBIDDEN)
+
 	update_serializer = UpdateAnswerInputSerializer(data=request.data)
 	if not update_serializer.is_valid():
 		return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 	body = update_serializer.validated_data['body']
 
 	answer.body = body
-	answer.edited_by = user
 	answer.save()
 	create_notification(
 		post=answer,
@@ -220,8 +222,6 @@ def update_answer(request, answer_id):
 			'modified_at': answer.modified_at,
 			'user': answer.user_id,
 			'user_name': answer.user.name,
-			'edited_by': answer.edited_by_id,
-			'edited_by_username': answer.edited_by.name if answer.edited_by else None,
 			'vote_count': answer.vote_count,
 		}
 	)

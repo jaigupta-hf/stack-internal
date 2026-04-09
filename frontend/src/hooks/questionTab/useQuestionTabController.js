@@ -10,6 +10,7 @@ import useQuestionAnswersDomain from './useQuestionAnswersDomain';
 import useQuestionBountyDomain from './useQuestionBountyDomain';
 import useQuestionMentionsDomain from './useQuestionMentionsDomain';
 import useQuestionModerationDomain from './useQuestionModerationDomain';
+import { useAuth } from '../../context/AuthContext';
 import {
   BOUNTY_REASONS,
   formatQuestionTime,
@@ -20,6 +21,8 @@ import {
 const DEFAULT_QUESTION_LIST_PAGE_SIZE = 20;
 
 function useQuestionTabController({ team }) {
+  const { user } = useAuth();
+  const currentUserId = Number(user?.id || 0);
   const [showAskModal, setShowAskModal] = useState(false);
   const [questionTitle, setQuestionTitle] = useState('');
   const [questionBody, setQuestionBody] = useState('');
@@ -298,6 +301,7 @@ function useQuestionTabController({ team }) {
     handleApproveAnswer,
     sortedAnswers,
   } = useQuestionAnswersDomain({
+    currentUserId,
     selectedQuestion,
     setSelectedQuestion,
     setQuestions,
@@ -328,6 +332,7 @@ function useQuestionTabController({ team }) {
     handleDeleteQuestion,
     handleUndeleteQuestion,
   } = useQuestionModerationDomain({
+    currentUserId,
     teamId: team?.id,
     selectedQuestion,
     setSelectedQuestion,
