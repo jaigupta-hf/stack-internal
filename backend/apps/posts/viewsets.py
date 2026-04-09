@@ -319,6 +319,12 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         questions, pagination = paginate_queryset(questions, page=page, page_size=page_size)
 
         question_ids = [question.id for question in questions]
+        expired_question_ids = self._cleanup_expired_bounties(question_ids)
+        if expired_question_ids:
+            for question in questions:
+                if question.id in expired_question_ids:
+                    question.bounty_amount = 0
+
         question_user_ids = [question.user_id for question in questions]
         admin_user_ids = set(
             TeamUser.objects.filter(team_id=team_id, user_id__in=question_user_ids, is_admin=True).values_list('user_id', flat=True)
@@ -454,7 +460,35 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         output.is_valid(raise_exception=True)
         return Response(output.data, status=status.HTTP_200_OK)
 
+    def _cleanup_expired_bounties(self, question_ids):
+        if not question_ids:
+            return set()
+
+        expired_bounty_rows = list(
+            Bounty.objects.filter(
+                post_id__in=question_ids,
+                status=Bounty.STATUS_OFFERED,
+                end_time__isnull=False,
+                end_time__lte=timezone.now(),
+            ).values_list('id', 'post_id')
+        )
+        if not expired_bounty_rows:
+            return set()
+
+        expired_bounty_ids = [bounty_id for bounty_id, _ in expired_bounty_rows]
+        expired_question_ids = {question_id for _, question_id in expired_bounty_rows}
+
+        with transaction.atomic():
+            Bounty.objects.filter(id__in=expired_bounty_ids).delete()
+            Post.objects.filter(id__in=expired_question_ids).update(bounty_amount=0)
+
+        return expired_question_ids
+
     def _build_question_detail_response(self, request, question):
+        expired_question_ids = self._cleanup_expired_bounties([question.id])
+        if question.id in expired_question_ids:
+            question.bounty_amount = 0
+
         answer_posts = getattr(question, 'answer_posts', [])
         post_ids = [question.id, *[answer.id for answer in answer_posts]]
 
@@ -655,6 +689,10 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     def offer_bounty(self, request, pk=None):
         question = self.get_object()
 
+        expired_question_ids = self._cleanup_expired_bounties([question.id])
+        if question.id in expired_question_ids:
+            question.bounty_amount = 0
+
         if question.user_id != request.user.id:
             return Response({'error': 'Only the question author can offer bounty'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -712,6 +750,10 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     @action(detail=True, methods=['post'], url_path='bounty/award')
     def award_bounty(self, request, pk=None):
         question = self.get_object()
+
+        expired_question_ids = self._cleanup_expired_bounties([question.id])
+        if question.id in expired_question_ids:
+            question.bounty_amount = 0
 
         if question.user_id != request.user.id:
             return Response({'error': 'Only the question author can award bounty'}, status=status.HTTP_403_FORBIDDEN)
