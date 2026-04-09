@@ -6,8 +6,8 @@ Related: frontend integration mapping and pagination usage is documented in `doc
 
 ## Base URL
 
-- Local: `http://localhost:3000`
-- API root: `http://localhost:3000/api`
+- Local: `http://localhost:8000`
+- API root: `http://localhost:8000/api`
 
 ## Authentication
 
