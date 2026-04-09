@@ -8,8 +8,11 @@ import useThreadedComments from '../useThreadedComments';
 import { formatArticleListTime, formatArticleTime } from './articleTabConstants';
 import useArticlesListDomain from './useArticlesListDomain';
 import useArticlesEditorDomain from './useArticlesEditorDomain';
+import { useAuth } from '../../context/AuthContext';
 
 function useArticlesTabController({ team }) {
+  const { user } = useAuth();
+  const currentUserId = Number(user?.id || 0);
   const teamId = team?.id;
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [articleVoteError, setArticleVoteError] = useState('');
@@ -72,6 +75,7 @@ function useArticlesTabController({ team }) {
   });
 
   const editor = useArticlesEditorDomain({
+    currentUserId,
     teamId,
     selectedArticle,
     setSelectedArticle,

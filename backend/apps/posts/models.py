@@ -38,13 +38,6 @@ class Post(models.Model):
 		blank=True,
 		related_name='closed_posts',
 	)
-	edited_by = models.ForeignKey(
-		User,
-		on_delete=models.SET_NULL,
-		null=True,
-		blank=True,
-		related_name='edited_posts',
-	)
 	answer_count = models.IntegerField(null=True, blank=True, default=None)
 	delete_flag = models.BooleanField(default=False)
 	bounty_amount = models.IntegerField(default=0)

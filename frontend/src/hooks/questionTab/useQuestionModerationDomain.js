@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { postService } from '../../services/api';
 
 function useQuestionModerationDomain({
+  currentUserId,
   teamId,
   selectedQuestion,
   setSelectedQuestion,
@@ -188,6 +189,12 @@ function useQuestionModerationDomain({
       return;
     }
 
+    const questionAuthorId = Number(selectedQuestion.user || selectedQuestion.user_id || 0);
+    if (questionAuthorId !== Number(currentUserId || 0)) {
+      setListError('Only the question author can delete this question.');
+      return;
+    }
+
     try {
       setDeletingQuestion(true);
       setListError('');
@@ -201,10 +208,16 @@ function useQuestionModerationDomain({
     } finally {
       setDeletingQuestion(false);
     }
-  }, [selectedQuestion, setListError, setQuestions, setSelectedQuestion, setShowAnswerSection]);
+  }, [currentUserId, selectedQuestion, setListError, setQuestions, setSelectedQuestion, setShowAnswerSection]);
 
   const handleUndeleteQuestion = useCallback(async () => {
     if (!selectedQuestion || !selectedQuestion.delete_flag) {
+      return;
+    }
+
+    const questionAuthorId = Number(selectedQuestion.user || selectedQuestion.user_id || 0);
+    if (questionAuthorId !== Number(currentUserId || 0)) {
+      setListError('Only the question author can undelete this question.');
       return;
     }
 
@@ -220,7 +233,7 @@ function useQuestionModerationDomain({
     } finally {
       setDeletingQuestion(false);
     }
-  }, [loadQuestions, selectedQuestion, setListError, setSelectedQuestion]);
+  }, [currentUserId, loadQuestions, selectedQuestion, setListError, setSelectedQuestion]);
 
   return {
     showCloseModal,

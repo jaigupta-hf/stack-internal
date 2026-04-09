@@ -262,7 +262,6 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             article.title = validated['title']
             article.body = validated['body']
             article.type = validated['type']
-            article.edited_by = request.user
             article.save()
             sync_post_tags(article, validated['tags'])
 
@@ -383,11 +382,11 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         answer_queryset = (
             Post.objects.filter(type=1)
             .filter(Q(delete_flag=False) | Q(delete_flag=True, user=user))
-            .select_related('user', 'edited_by')
+            .select_related('user')
             .order_by('created_at')
         )
 
-        return Post.objects.annotate(followers_count=Count('follows')).select_related('user', 'edited_by', 'closed_by', 'parent').prefetch_related(
+        return Post.objects.annotate(followers_count=Count('follows')).select_related('user', 'closed_by', 'parent').prefetch_related(
             Prefetch(
                 'child_posts',
                 queryset=answer_queryset,
@@ -558,6 +557,9 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
         self.check_object_permissions(request, question)
 
+        if question.user_id != request.user.id:
+            return Response({'error': 'Only the question author can edit this question'}, status=status.HTTP_403_FORBIDDEN)
+
         update_serializer = QuestionUpdateSerializer(data=request.data)
         if not update_serializer.is_valid():
             return Response(
@@ -571,7 +573,6 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         with transaction.atomic():
             question.title = validated['title']
             question.body = validated['body']
-            question.edited_by = request.user
             question.save()
 
             if tags is not None:
@@ -913,6 +914,9 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     def mark_deleted(self, request, pk=None):
         question = self.get_object()
 
+        if question.user_id != request.user.id:
+            return Response({'error': 'Only the question author can delete this question'}, status=status.HTTP_403_FORBIDDEN)
+
         if not question.delete_flag:
             Post.objects.filter(id=question.id).update(delete_flag=True)
             create_notification(
@@ -927,6 +931,9 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     @action(detail=True, methods=['post'], url_path='undelete')
     def undelete(self, request, pk=None):
         question = self.get_object()
+
+        if question.user_id != request.user.id:
+            return Response({'error': 'Only the question author can undelete this question'}, status=status.HTTP_403_FORBIDDEN)
 
         if question.delete_flag:
             Post.objects.filter(id=question.id).update(delete_flag=False)

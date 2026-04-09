@@ -4,8 +4,10 @@ import CommentSection, {
   buildCommentItemKey,
 } from '../CommentSection';
 import VotePanel from '../VotePanel';
+import { useAuth } from '../../context/AuthContext';
 
 function QuestionDetailPanel({ controller, onOpenUserProfile }) {
+  const { user } = useAuth();
   const {
     selectedQuestion,
     formatVerboseRelativeTime,
@@ -118,6 +120,9 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
   if (!selectedQuestion) {
     return null;
   }
+
+  const currentUserId = Number(user?.id || 0);
+  const isQuestionAuthor = Number(selectedQuestion.user || 0) === currentUserId;
 
   return (
     <div className="mt-6 w-full rounded-3xl border border-white/10 bg-[#111821] p-6 shadow-2xl shadow-black/35 sm:p-8">
@@ -351,13 +356,15 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
                       </button>
                     ))}
 
-                    <button
-                      type="button"
-                      onClick={handleStartTagsEdit}
-                      className="text-xs font-medium text-white/50 transition hover:text-cyan-200"
-                    >
-                      Edit tags
-                    </button>
+                    {isQuestionAuthor ? (
+                      <button
+                        type="button"
+                        onClick={handleStartTagsEdit}
+                        className="text-xs font-medium text-white/50 transition hover:text-cyan-200"
+                      >
+                        Edit tags
+                      </button>
+                    ) : null}
                   </div>
 
                   <div className="relative z-20 ml-auto">
@@ -468,13 +475,15 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
                       ? (selectedQuestion.is_following ? 'Unfollowing...' : 'Following...')
                       : (selectedQuestion.is_following ? 'Unfollow' : 'Follow')}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleStartQuestionEdit}
-                    className="text-xs font-medium text-white/50 transition hover:text-cyan-200"
-                  >
-                    Edit
-                  </button>
+                  {isQuestionAuthor ? (
+                    <button
+                      type="button"
+                      onClick={handleStartQuestionEdit}
+                      className="text-xs font-medium text-white/50 transition hover:text-cyan-200"
+                    >
+                      Edit
+                    </button>
+                  ) : null}
                   {selectedQuestion.closed_reason ? (
                     <button
                       type="button"
@@ -492,25 +501,27 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
                       Close
                     </button>
                   )}
-                  {selectedQuestion.delete_flag ? (
-                    <button
-                      type="button"
-                      onClick={handleUndeleteQuestion}
-                      disabled={deletingQuestion}
-                      className="text-xs font-medium text-emerald-200 transition hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {deletingQuestion ? 'Undeleting...' : 'Undelete'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleDeleteQuestion}
-                      disabled={deletingQuestion}
-                      className="text-xs font-medium text-white/50 transition hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {deletingQuestion ? 'Deleting...' : 'Delete'}
-                    </button>
-                  )}
+                  {isQuestionAuthor ? (
+                    selectedQuestion.delete_flag ? (
+                      <button
+                        type="button"
+                        onClick={handleUndeleteQuestion}
+                        disabled={deletingQuestion}
+                        className="text-xs font-medium text-emerald-200 transition hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingQuestion ? 'Undeleting...' : 'Undelete'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleDeleteQuestion}
+                        disabled={deletingQuestion}
+                        className="text-xs font-medium text-white/50 transition hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingQuestion ? 'Deleting...' : 'Delete'}
+                      </button>
+                    )
+                  ) : null}
                   {selectedQuestion.can_offer_bounty ? (
                     <button
                       type="button"
@@ -530,18 +541,6 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
                     {isActuallyEdited(selectedQuestion.created_at, selectedQuestion.modified_at) ? (
                       <div>
                         <p>edited {formatQuestionTime(selectedQuestion.modified_at)}</p>
-                        {selectedQuestion.edited_by_username &&
-                        selectedQuestion.edited_by_username !== selectedQuestion.user_name ? (
-                          <p>
-                            <button
-                              type="button"
-                              onClick={() => onOpenUserProfile?.(selectedQuestion.edited_by)}
-                              className="transition hover:text-cyan-200 hover:underline"
-                            >
-                              {selectedQuestion.edited_by_username}
-                            </button>
-                          </p>
-                        ) : null}
                       </div>
                     ) : null}
                     <div className="rounded-xl bg-cyan-300/10 px-3 py-1 text-xs text-cyan-200">
@@ -622,9 +621,8 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
               <ul className="mt-3 space-y-3">
                 {sortedAnswers.map((answer) => {
                   const edited = isActuallyEdited(answer.created_at, answer.modified_at);
-                  const editedByUsername = answer.edited_by_username || answer.user_name;
-                  const showEditedByName = edited && editedByUsername && editedByUsername !== answer.user_name;
                   const answerCommentData = buildCommentData(answer.comments);
+                  const isAnswerAuthor = Number(answer.user || 0) === currentUserId;
                   const isAnswerDeleted = Boolean(answer.delete_flag);
                   const disableAnswerVoting = Boolean(selectedQuestion.delete_flag || isAnswerDeleted);
                   const disableApprove = Boolean(!selectedQuestion.can_approve_answers || selectedQuestion.delete_flag || isAnswerDeleted);
@@ -755,35 +753,37 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
 
                               <div className="mt-3 flex items-start gap-3">
                                 <div className="flex flex-col items-start gap-2">
-                                  <div className="mt-3 flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleStartAnswerEdit(answer)}
-                                      disabled={isAnswerDeleted}
-                                      className="text-xs font-medium text-white/50 transition hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
-                                    >
-                                      Edit
-                                    </button>
-                                    {isAnswerDeleted ? (
+                                  {isAnswerAuthor ? (
+                                    <div className="mt-3 flex items-center gap-2">
                                       <button
                                         type="button"
-                                        onClick={() => handleUndeleteAnswer(answer.id)}
-                                        disabled={deletingAnswerId === answer.id}
-                                        className="text-xs font-medium text-emerald-200 transition hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        onClick={() => handleStartAnswerEdit(answer)}
+                                        disabled={isAnswerDeleted}
+                                        className="text-xs font-medium text-white/50 transition hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
                                       >
-                                        {deletingAnswerId === answer.id ? 'Undeleting...' : 'Undelete'}
+                                        Edit
                                       </button>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteAnswer(answer.id)}
-                                        disabled={deletingAnswerId === answer.id}
-                                        className="text-xs font-medium text-white/50 transition hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                      >
-                                        {deletingAnswerId === answer.id ? 'Deleting...' : 'Delete'}
-                                      </button>
-                                    )}
-                                  </div>
+                                      {isAnswerDeleted ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUndeleteAnswer(answer.id)}
+                                          disabled={deletingAnswerId === answer.id}
+                                          className="text-xs font-medium text-emerald-200 transition hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                          {deletingAnswerId === answer.id ? 'Undeleting...' : 'Undelete'}
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteAnswer(answer.id)}
+                                          disabled={deletingAnswerId === answer.id}
+                                          className="text-xs font-medium text-white/50 transition hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                          {deletingAnswerId === answer.id ? 'Deleting...' : 'Delete'}
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div className="ml-auto text-right text-sm text-slate-300">
                                   <div className="shrink-0 text-right text-xs text-slate-400">
@@ -791,17 +791,6 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
                                       {edited ? (
                                         <div>
                                           <p>edited {formatQuestionTime(answer.modified_at)}</p>
-                                          {showEditedByName ? (
-                                            <p>
-                                              <button
-                                                type="button"
-                                                onClick={() => onOpenUserProfile?.(answer.edited_by)}
-                                                className="transition hover:text-cyan-200 hover:underline"
-                                              >
-                                                {editedByUsername}
-                                              </button>
-                                            </p>
-                                          ) : null}
                                         </div>
                                       ) : null}
                                       <div>
