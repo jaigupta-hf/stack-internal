@@ -5,7 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.pagination import parse_pagination_params, paginate_queryset
+from apps.pagination import CustomPagination
 from comments.models import Comment
 from posts.constants import COLLECTION_ELIGIBLE_POST_TYPE_VALUES, COLLECTION_POST_SEARCH_LIMIT
 from posts.models import Bookmark, Post
@@ -18,7 +18,6 @@ from .serializers import (
     CollectionCommentCreateSerializer,
     CollectionCommentOutputSerializer,
     CollectionDetailOutputSerializer,
-    CollectionListOutputSerializer,
     CollectionPostOutputSerializer,
     CollectionSearchPostOutputSerializer,
     CollectionSummaryOutputSerializer,
@@ -85,18 +84,17 @@ class CollectionViewSet(viewsets.GenericViewSet):
         if not team_id:
             return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        page, page_size = parse_pagination_params(request)
-
         collections = (
             Collection.objects.filter(team_id=team_id)
             .select_related('user')
             .annotate(post_count=Count('post_collections'))
             .order_by('-created_at')
         )
-        collections, pagination = paginate_queryset(collections, page=page, page_size=page_size)
 
-        output = CollectionListOutputSerializer({'items': collections, 'pagination': pagination})
-        return Response(output.data, status=status.HTTP_200_OK)
+        paginator = CustomPagination()
+        paged_collections = paginator.paginate_queryset(collections, request, view=self)
+        output = CollectionSummaryOutputSerializer(paged_collections, many=True)
+        return paginator.get_paginated_response(output.data)
 
     def retrieve(self, request, pk=None, *args, **kwargs):
         collection, collection_error = self._get_collection_for_detail_or_response(pk)

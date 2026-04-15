@@ -29,6 +29,9 @@ class TeamBySlugOutputSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'url_endpoint', 'is_member', 'is_admin']
 
     def _membership(self, team):
+        if 'membership' in self.context:
+            return self.context.get('membership')
+
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         if not user or not getattr(user, 'is_authenticated', False):

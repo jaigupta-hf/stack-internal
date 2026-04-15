@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from apps.pagination import parse_pagination_params, paginate_queryset
+from apps.pagination import CustomPagination
 
 from teams.permissions import ensure_team_membership, get_team_membership
 from users.models import User
@@ -242,11 +242,9 @@ def list_bookmarks(request):
         if get_team_membership(team_id=team_id, user=target_user) is None:
             return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
-    page, page_size = parse_pagination_params(
-        request,
-        default_page_size=DEFAULT_BOOKMARK_LIST_PAGE_SIZE,
-        max_page_size=MAX_BOOKMARK_LIST_PAGE_SIZE,
-    )
+    paginator = CustomPagination()
+    paginator.page_size = DEFAULT_BOOKMARK_LIST_PAGE_SIZE
+    paginator.max_page_size = MAX_BOOKMARK_LIST_PAGE_SIZE
 
     bookmarks = (
         Bookmark.objects.filter(user=target_user)
@@ -254,7 +252,7 @@ def list_bookmarks(request):
         .select_related('post__user', 'collection__user')
         .order_by('-id')
     )
-    bookmarks, _ = paginate_queryset(bookmarks, page=page, page_size=page_size)
+    bookmarks = paginator.paginate_queryset(bookmarks, request)
 
     post_ids = [item.post_id for item in bookmarks]
     posts_by_id = {
@@ -268,7 +266,7 @@ def list_bookmarks(request):
         if payload:
             data.append(payload)
 
-    return Response(data, status=status.HTTP_200_OK)
+    return paginator.get_paginated_response(data)
 
 
 # Handle list followed posts.
@@ -301,18 +299,16 @@ def list_followed_posts(request):
         if get_team_membership(team_id=team_id, user=target_user) is None:
             return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
-    page, page_size = parse_pagination_params(
-        request,
-        default_page_size=DEFAULT_FOLLOWED_POSTS_PAGE_SIZE,
-        max_page_size=MAX_FOLLOWED_POSTS_PAGE_SIZE,
-    )
+    paginator = CustomPagination()
+    paginator.page_size = DEFAULT_FOLLOWED_POSTS_PAGE_SIZE
+    paginator.max_page_size = MAX_FOLLOWED_POSTS_PAGE_SIZE
 
     follows = (
         PostFollow.objects.filter(user=target_user, post__team_id=team_id, post__type=POST_TYPE_QUESTION)
         .select_related('post__user')
         .order_by('-created_at')
     )
-    follows, _ = paginate_queryset(follows, page=page, page_size=page_size)
+    follows = paginator.paginate_queryset(follows, request)
 
     post_ids = [item.post_id for item in follows]
     posts_by_id = {
@@ -345,4 +341,4 @@ def list_followed_posts(request):
             }
         )
 
-    return Response(data, status=status.HTTP_200_OK)
+    return paginator.get_paginated_response(data)

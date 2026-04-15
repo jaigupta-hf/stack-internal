@@ -8,11 +8,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posts.constants import ARTICLE_TYPE_VALUES, POST_TYPE_TO_KEY, POST_TYPE_TO_LABEL
-from posts.models import Post
-from teams.permissions import IsTeamMember, get_team_membership
+from teams.permissions import IsTeamMember
 
 from .models import User
+from .services import UserService, UserServiceError
 from .serializers import (
     GoogleAuthSerializer,
     ProfileOutputSerializer,
@@ -118,13 +117,7 @@ class ProfileView(APIView):
             return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         updates = update_serializer.validated_data
-
-        for field_name, value in updates.items():
-            setattr(user, field_name, value)
-
-        if updates:
-            user.last_seen = timezone.now()
-            user.save(update_fields=[*updates.keys(), 'last_seen'])
+        user = UserService.update_profile(user=user, updates=updates)
 
         output_serializer = ProfileUpdateOutputSerializer(
             data={
@@ -141,85 +134,34 @@ class ProfileView(APIView):
     def get(self, request, *args, **kwargs):
         user = request.user
 
-        team_id = request.query_params.get('team_id')
-        if not team_id:
+        raw_team_id = request.query_params.get('team_id')
+        if not raw_team_id:
             return Response({'error': 'team_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        target_user = user
+        try:
+            team_id = int(raw_team_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'team_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
         user_id = request.query_params.get('user_id')
-        if user_id:
+        target_user_id = None
+        if user_id not in (None, ''):
             try:
-                target_user = User.objects.get(id=user_id)
-            except User.DoesNotExist:
-                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+                target_user_id = int(user_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'user_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
 
-        membership = get_team_membership(team_id=team_id, user=target_user, select_related_team=True)
-        if membership is None:
-            return Response({'error': 'User is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
-
-        user.last_seen = timezone.now()
-        user.save(update_fields=['last_seen'])
-
-        posts = (
-            Post.objects.filter(team_id=team_id, user=target_user)
-            .select_related('parent')
-            .order_by('-created_at')[:50]
-        )
-
-        activities = []
-        for post in posts:
-            display_title = post.title.strip()
-            reference_post_id = post.id
-            reference_type = 'article' if post.type in ARTICLE_TYPE_VALUES else 'question'
-
-            if post.type == 1:
-                parent_title = post.parent.title.strip() if post.parent and post.parent.title else ''
-                display_title = f'{parent_title or "Untitled question"}'
-                if post.parent_id:
-                    reference_post_id = post.parent_id
-                reference_type = 'question'
-
-            activities.append(
-                {
-                    'post_id': post.id,
-                    'type': post.type,
-                    'delete_flag': post.delete_flag,
-                    'type_key': POST_TYPE_TO_KEY.get(post.type, 'post'),
-                    'type_label': POST_TYPE_TO_LABEL.get(post.type, 'Post'),
-                    'title': display_title or 'Untitled post',
-                    'created_at': post.created_at,
-                    'reference_post_id': reference_post_id,
-                    'reference_type': reference_type,
-                }
+        try:
+            payload = UserService.build_profile_payload(
+                requester=user,
+                team_id=team_id,
+                target_user_id=target_user_id,
             )
-
-        can_edit = target_user.id == user.id
-        tag_usages = []
-        for tag_user in target_user.tag_users.select_related('tag').filter(count__gt=0).order_by('-count', 'tag__name'):
-            item = {
-                'tag_id': tag_user.tag_id,
-                'tag_name': tag_user.tag.name,
-                'count': tag_user.count,
-            }
-            if can_edit:
-                item['is_watching'] = tag_user.is_watching
-                item['is_ignored'] = tag_user.is_ignored
-            tag_usages.append(item)
+        except UserServiceError as error:
+            return Response({'error': str(error)}, status=error.status_code)
 
         output_serializer = ProfileOutputSerializer(
-            data={
-                'id': target_user.id,
-                'name': target_user.name,
-                'title': target_user.title,
-                'about': target_user.about,
-                'membership_type': 'admin' if membership.is_admin else 'member',
-                'reputation': membership.reputation,
-                'team_joined_at': membership.joined_at,
-                'last_seen': target_user.last_seen,
-                'can_edit': can_edit,
-                'activities': activities,
-                'tag_usages': tag_usages,
-            }
+            data=payload
         )
         output_serializer.is_valid(raise_exception=True)
         return Response(output_serializer.data, status=status.HTTP_200_OK)
