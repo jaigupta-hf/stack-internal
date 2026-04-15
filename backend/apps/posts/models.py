@@ -90,6 +90,40 @@ class PostVersion(models.Model):
 		return f'PostVersion #{self.id} (post={self.post_id}, version={self.version})'
 
 
+class PostActivity(models.Model):
+	class Action(models.TextChoices):
+		POST_CREATED = 'post_created', 'Post created'
+		POST_EDITED = 'post_edited', 'Post edited'
+		COMMENTED = 'commented', 'Commented'
+		ANSWERED = 'answered', 'Answered'
+		POST_DELETED = 'post_deleted', 'Post deleted'
+		POST_UNDELETED = 'post_undeleted', 'Post undeleted'
+		POST_CLOSED = 'post_closed', 'Post closed'
+		POST_REOPENED = 'post_reopened', 'Post reopened'
+		BOUNTY_STARTED = 'bounty_started', 'Bounty started'
+		BOUNTY_ENDED = 'bounty_ended', 'Bounty ended'
+
+	id = models.BigAutoField(primary_key=True)
+	post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='activities')
+	comment = models.ForeignKey('comments.Comment', on_delete=models.SET_NULL, null=True, blank=True, related_name='post_activities')
+	answer = models.ForeignKey(Post, on_delete=models.SET_NULL, null=True, blank=True, related_name='answer_activities')
+	post_version = models.ForeignKey(PostVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name='activities')
+	actor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='post_activities')
+	action = models.CharField(max_length=64, choices=Action.choices)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		db_table = 'post_activities'
+		indexes = [
+			models.Index(fields=['post', 'created_at'], name='post_act_post_created_idx'),
+			models.Index(fields=['actor', 'created_at'], name='post_act_actor_created_idx'),
+			models.Index(fields=['action', 'created_at'], name='post_act_action_created_idx'),
+		]
+
+	def __str__(self):
+		return f'PostActivity #{self.id} ({self.action})'
+
+
 class Bookmark(models.Model):
 	id = models.BigAutoField(primary_key=True)
 	post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='bookmarks')

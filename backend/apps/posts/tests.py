@@ -16,7 +16,7 @@ from posts.constants import (
 	POST_TYPE_POLICY,
 	POST_TYPE_QUESTION,
 )
-from posts.models import Post, PostVersion
+from posts.models import Post, PostActivity, PostVersion
 
 
 class RouterEndpointTests(APITestCase):
@@ -324,3 +324,105 @@ class RouterEndpointTests(APITestCase):
 		self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 2)
 		self.assertEqual(PostVersion.objects.get(post=answer, version=2).body, 'Answer v2')
+
+	def test_question_activity_timeline_records_requested_events(self):
+		TeamUser.objects.filter(team=self.team, user=self.user).update(reputation=200)
+
+		create_response = self.client.post(
+			'/api/posts/questions/',
+			{
+				'team_id': self.team.id,
+				'title': 'Activity question',
+				'body': 'Initial body',
+				'tags': ['django'],
+			},
+			format='json',
+		)
+		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+		question_id = create_response.data['id']
+
+		update_response = self.client.patch(
+			f'/api/posts/questions/{question_id}/',
+			{'title': 'Activity question v2', 'body': 'Edited body', 'tags': ['django', 'api']},
+			format='json',
+		)
+		self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+		comment_response = self.client.post(
+			'/api/comments/',
+			{'post_id': question_id, 'body': 'Question comment'},
+			format='json',
+		)
+		self.assertEqual(comment_response.status_code, status.HTTP_201_CREATED)
+
+		answer_response = self.client.post(
+			f'/api/posts/questions/{question_id}/answers/',
+			{'body': 'Answer body'},
+			format='json',
+		)
+		self.assertEqual(answer_response.status_code, status.HTTP_201_CREATED)
+		answer_id = answer_response.data['id']
+
+		close_response = self.client.post(
+			f'/api/posts/questions/{question_id}/close/',
+			{'reason': 'off-topic'},
+			format='json',
+		)
+		self.assertEqual(close_response.status_code, status.HTTP_200_OK)
+
+		reopen_response = self.client.post(f'/api/posts/questions/{question_id}/reopen/')
+		self.assertEqual(reopen_response.status_code, status.HTTP_200_OK)
+
+		offer_response = self.client.post(
+			f'/api/posts/questions/{question_id}/bounty/offer/',
+			{'reason': 'Draw attention'},
+			format='json',
+		)
+		self.assertEqual(offer_response.status_code, status.HTTP_200_OK)
+
+		award_response = self.client.post(
+			f'/api/posts/questions/{question_id}/bounty/award/',
+			{'answer_id': answer_id},
+			format='json',
+		)
+		self.assertEqual(award_response.status_code, status.HTTP_200_OK)
+
+		delete_response = self.client.post(f'/api/posts/questions/{question_id}/delete/')
+		self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+
+		undelete_response = self.client.post(f'/api/posts/questions/{question_id}/undelete/')
+		self.assertEqual(undelete_response.status_code, status.HTTP_200_OK)
+
+		activity_response = self.client.get(f'/api/posts/questions/{question_id}/activities/')
+		self.assertEqual(activity_response.status_code, status.HTTP_200_OK)
+		self.assertIn('items', activity_response.data)
+		self.assertIn('pagination', activity_response.data)
+
+		actions = [item['action'] for item in activity_response.data['items']]
+		expected_actions = {
+			PostActivity.Action.POST_CREATED,
+			PostActivity.Action.POST_EDITED,
+			PostActivity.Action.COMMENTED,
+			PostActivity.Action.ANSWERED,
+			PostActivity.Action.POST_CLOSED,
+			PostActivity.Action.POST_REOPENED,
+			PostActivity.Action.BOUNTY_STARTED,
+			PostActivity.Action.BOUNTY_ENDED,
+			PostActivity.Action.POST_DELETED,
+			PostActivity.Action.POST_UNDELETED,
+		}
+		self.assertTrue(expected_actions.issubset(set(actions)))
+
+		answered_activity = PostActivity.objects.filter(
+			post_id=question_id,
+			action=PostActivity.Action.ANSWERED,
+		).order_by('-id').first()
+		self.assertIsNotNone(answered_activity)
+		self.assertEqual(answered_activity.answer_id, answer_id)
+
+		commented_activity = PostActivity.objects.filter(
+			post_id=question_id,
+			action=PostActivity.Action.COMMENTED,
+		).order_by('-id').first()
+		self.assertIsNotNone(commented_activity)
+		self.assertIsNotNone(commented_activity.comment_id)

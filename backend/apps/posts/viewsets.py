@@ -32,6 +32,7 @@ from teams.permissions import IsTeamMember
 from votes.models import Vote
 
 from tags.api import serialize_post_tags, sync_post_tags, sync_user_tags_for_post, tag_prefetch
+from .activity import create_post_activity
 from .versioning import create_post_version
 
 from .constants import (
@@ -43,6 +44,7 @@ from .constants import (
     MAX_ARTICLE_LIST_PAGE_SIZE,
 )
 from .models import Bookmark, Post
+from .models import PostActivity
 from .models import PostFollow
 from .models import PostVersion
 from .serializers import (
@@ -56,6 +58,7 @@ from .serializers import (
     CreateQuestionOutputSerializer,
     CreateQuestionSerializer,
     OfferQuestionBountyInputSerializer,
+    PostActivityOutputSerializer,
     PostDeleteStateOutputSerializer,
     PostVersionOutputSerializer,
     QuestionBountyStateOutputSerializer,
@@ -183,11 +186,17 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             )
             sync_post_tags(article, validated['tags'])
             sync_user_tags_for_post(self.request.user, article)
-            create_post_version(
-				post=article,
-				reason='created',
-				prefetched_attr='article_tag_posts',
-			)
+            version = create_post_version(
+                post=article,
+                reason='created',
+                prefetched_attr='article_tag_posts',
+            )
+            create_post_activity(
+                post=article,
+                actor=self.request.user,
+                action=PostActivity.Action.POST_CREATED,
+                post_version=version,
+            )
         return article
 
     def create(self, request, *args, **kwargs):
@@ -272,11 +281,17 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             article.type = validated['type']
             article.save()
             sync_post_tags(article, validated['tags'])
-            create_post_version(
-				post=article,
-				reason='edited',
-				prefetched_attr='article_tag_posts',
-			)
+            version = create_post_version(
+                post=article,
+                reason='edited',
+                prefetched_attr='article_tag_posts',
+            )
+            create_post_activity(
+                post=article,
+                actor=request.user,
+                action=PostActivity.Action.POST_EDITED,
+                post_version=version,
+            )
 
         article = (
             Post.objects.select_related('user')
@@ -373,11 +388,17 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             )
             sync_post_tags(question, validated.get('tags', []))
             sync_user_tags_for_post(self.request.user, question)
-            create_post_version(
-				post=question,
-				reason='created',
-				prefetched_attr='question_tag_posts',
-			)
+            version = create_post_version(
+                post=question,
+                reason='created',
+                prefetched_attr='question_tag_posts',
+            )
+            create_post_activity(
+                post=question,
+                actor=self.request.user,
+                action=PostActivity.Action.POST_CREATED,
+                post_version=version,
+            )
         return question
 
     def create(self, request, *args, **kwargs):
@@ -499,6 +520,15 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         with transaction.atomic():
             Bounty.objects.filter(id__in=expired_bounty_ids).delete()
             Post.objects.filter(id__in=expired_question_ids).update(bounty_amount=0)
+            PostActivity.objects.bulk_create(
+                [
+                    PostActivity(
+                        post_id=question_id,
+                        action=PostActivity.Action.BOUNTY_ENDED,
+                    )
+                    for question_id in sorted(expired_question_ids)
+                ]
+            )
 
         return expired_question_ids
 
@@ -630,11 +660,17 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             if tags is not None:
                 sync_post_tags(question, tags)
 
-            create_post_version(
-				post=question,
-				reason='edited',
-				prefetched_attr='question_tag_posts',
-			)
+            version = create_post_version(
+                post=question,
+                reason='edited',
+                prefetched_attr='question_tag_posts',
+            )
+            create_post_activity(
+                post=question,
+                actor=request.user,
+                action=PostActivity.Action.POST_EDITED,
+                post_version=version,
+            )
 
         create_notification(
             post=question,
@@ -682,6 +718,25 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
         serializer = PostVersionOutputSerializer(version_obj)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='activities')
+    def activities(self, request, pk=None):
+        try:
+            question = self._question_detail_queryset(request.user).get(id=pk, type=0)
+        except Post.DoesNotExist:
+            return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        self.check_object_permissions(request, question)
+
+        page, page_size = parse_pagination_params(request, default_page_size=20, max_page_size=200)
+        queryset = (
+            PostActivity.objects.filter(post_id=question.id)
+            .select_related('actor')
+            .order_by('-created_at', '-id')
+        )
+        activities, pagination = paginate_queryset(queryset, page=page, page_size=page_size)
+        serializer = PostActivityOutputSerializer(activities, many=True)
+        return Response({'items': serializer.data, 'pagination': pagination}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='follow')
     def follow(self, request, pk=None):
@@ -795,6 +850,11 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             )
             Post.objects.filter(id=question.id).update(bounty_amount=BOUNTY_AMOUNT)
             question.refresh_from_db(fields=['bounty_amount'])
+            create_post_activity(
+                post=question,
+                actor=request.user,
+                action=PostActivity.Action.BOUNTY_STARTED,
+            )
 
         output = QuestionBountyStateOutputSerializer(
             data={
@@ -875,6 +935,12 @@ class QuestionViewSet(TeamScopedCrudViewSet):
                 points=BOUNTY_AMOUNT,
                 reason=REPUTATION_REASON_BOUNTY_EARNED,
             )
+            create_post_activity(
+                post=question,
+                answer=answer,
+                actor=request.user,
+                action=PostActivity.Action.BOUNTY_ENDED,
+            )
 
         output = QuestionAwardBountyOutputSerializer(
             data={
@@ -929,18 +995,24 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             duplicate_post_title_value = duplicate_question.title
 
         closed_at = timezone.now()
-        Post.objects.filter(id=question.id).update(
-            closed_reason=reason_value,
-            closed_by=request.user,
-            closed_at=closed_at,
-            parent=duplicate_question if reason_value == 'duplicate' else None,
-        )
-        create_notification(
-            post=question,
-            user=question.user,
-            triggered_by=request.user,
-            reason=NOTIFICATION_REASON_QUESTION_CLOSED,
-        )
+        with transaction.atomic():
+            Post.objects.filter(id=question.id).update(
+                closed_reason=reason_value,
+                closed_by=request.user,
+                closed_at=closed_at,
+                parent=duplicate_question if reason_value == 'duplicate' else None,
+            )
+            create_post_activity(
+                post=question,
+                actor=request.user,
+                action=PostActivity.Action.POST_CLOSED,
+            )
+            create_notification(
+                post=question,
+                user=question.user,
+                triggered_by=request.user,
+                reason=NOTIFICATION_REASON_QUESTION_CLOSED,
+            )
 
         return self._question_close_response(
             question=question,
@@ -993,12 +1065,18 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         if not question.closed_reason:
             return Response({'error': 'Question is not closed.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        Post.objects.filter(id=question.id).update(
-            closed_reason='',
-            closed_by=None,
-            closed_at=None,
-            parent=None,
-        )
+        with transaction.atomic():
+            Post.objects.filter(id=question.id).update(
+                closed_reason='',
+                closed_by=None,
+                closed_at=None,
+                parent=None,
+            )
+            create_post_activity(
+                post=question,
+                actor=request.user,
+                action=PostActivity.Action.POST_REOPENED,
+            )
 
         return self._question_close_response(
             question=question,
@@ -1019,13 +1097,19 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             return Response({'error': 'Only the question author can delete this question'}, status=status.HTTP_403_FORBIDDEN)
 
         if not question.delete_flag:
-            Post.objects.filter(id=question.id).update(delete_flag=True)
-            create_notification(
-                post=question,
-                user=question.user,
-                triggered_by=request.user,
-                reason=NOTIFICATION_REASON_QUESTION_DELETED,
-            )
+            with transaction.atomic():
+                Post.objects.filter(id=question.id).update(delete_flag=True)
+                create_post_activity(
+                    post=question,
+                    actor=request.user,
+                    action=PostActivity.Action.POST_DELETED,
+                )
+                create_notification(
+                    post=question,
+                    user=question.user,
+                    triggered_by=request.user,
+                    reason=NOTIFICATION_REASON_QUESTION_DELETED,
+                )
 
         return self._question_delete_state_response(question=question, is_deleted=True)
 
@@ -1037,6 +1121,12 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             return Response({'error': 'Only the question author can undelete this question'}, status=status.HTTP_403_FORBIDDEN)
 
         if question.delete_flag:
-            Post.objects.filter(id=question.id).update(delete_flag=False)
+            with transaction.atomic():
+                Post.objects.filter(id=question.id).update(delete_flag=False)
+                create_post_activity(
+                    post=question,
+                    actor=request.user,
+                    action=PostActivity.Action.POST_UNDELETED,
+                )
 
         return self._question_delete_state_response(question=question, is_deleted=False)
