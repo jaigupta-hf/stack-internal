@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from teams.models import Team
 from tags.api import serialize_post_tags
-from .models import Post
+from .models import Post, PostVersion
 from .constants import ARTICLE_TYPE_TO_LABEL, ARTICLE_TYPE_VALUES, BOUNTY_REASON_OPTIONS, MAX_TAGS_PER_POST, MIN_TAGS_PER_POST
 
 
@@ -59,7 +59,7 @@ class UpdateAnswerInputSerializer(serializers.Serializer):
 class CreateAnswerOutputSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     type = serializers.IntegerField()
-    title = serializers.CharField()
+    title = serializers.CharField(allow_blank=True)
     body = serializers.CharField()
     parent = serializers.IntegerField(allow_null=True)
     created_at = serializers.DateTimeField()
@@ -89,6 +89,24 @@ class PostDeleteStateOutputSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     delete_flag = serializers.BooleanField()
     is_deleted = serializers.BooleanField()
+
+
+class PostVersionOutputSerializer(serializers.ModelSerializer):
+    post = serializers.IntegerField(source='post_id', read_only=True)
+    tags_snapshot = serializers.JSONField()
+
+    class Meta:
+        model = PostVersion
+        fields = [
+            'id',
+            'post',
+            'version',
+            'title',
+            'body',
+            'tags_snapshot',
+            'reason',
+            'created_at',
+        ]
 
 
 class ApproveAnswerInputSerializer(serializers.Serializer):

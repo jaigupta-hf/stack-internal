@@ -28,8 +28,16 @@ function TeamsPage({ onLogout, onTeamOpen }) {
   };
 
   useEffect(() => {
+    if (!user) {
+      setTeams([]);
+      setLoadError('');
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     loadTeams();
-  }, []);
+  }, [user]);
 
   // Create a new team, refresh the list, and optionally open it.
   const handleCreateTeam = async (e) => {

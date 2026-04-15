@@ -6,7 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from teams.permissions import ensure_team_membership
-from .models import Post
+from .models import Post, PostVersion
 from .serializers import (
 	ApproveAnswerInputSerializer,
 	ApproveAnswerOutputSerializer,
@@ -15,6 +15,7 @@ from .serializers import (
 	CreateQuestionOutputSerializer,
 	CreateQuestionSerializer,
 	PostDeleteStateOutputSerializer,
+	PostVersionOutputSerializer,
 	UpdateAnswerInputSerializer,
 	UpdateAnswerOutputSerializer,
 )
@@ -38,6 +39,7 @@ from .views_common import (
 	_first_serializer_error,
 	_notify_question_followers,
 )
+from .versioning import create_post_version
 from .views_questions import (
 	search_global_titles,
 	search_questions,
@@ -82,6 +84,11 @@ def create_question(request):
 
 		sync_post_tags(post, tag_names)
 		sync_user_tags_for_post(user, post)
+		create_post_version(
+			post=post,
+			reason='created',
+			prefetched_attr='question_tag_posts',
+		)
 
 	output = CreateQuestionOutputSerializer(
 		data={
@@ -128,35 +135,40 @@ def create_answer(request, question_id):
 
 	body = serializer.validated_data['body']
 
-	answer = Post.objects.create(
-		type=1,
-		title='',
-		body=body,
-		parent=question,
-		team=question.team,
-		user=user,
-		views_count=0,
-		vote_count=0,
-		approved_answer=None,
-		closed_reason='',
-		closed_at=None,
-		closed_by=None,
-		delete_flag=False,
-		bounty_amount=0,
-	)
+	with transaction.atomic():
+		answer = Post.objects.create(
+			type=1,
+			title='',
+			body=body,
+			parent=question,
+			team=question.team,
+			user=user,
+			views_count=0,
+			vote_count=0,
+			approved_answer=None,
+			closed_reason='',
+			closed_at=None,
+			closed_by=None,
+			delete_flag=False,
+			bounty_amount=0,
+		)
+		create_post_version(
+			post=answer,
+			reason='created',
+		)
 
-	Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
-	create_notification(
-		post=question,
-		user=question.user,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
-	)
-	_notify_question_followers(
-		question=question,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
-	)
+		Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
+		create_notification(
+			post=question,
+			user=question.user,
+			triggered_by=user,
+			reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
+		)
+		_notify_question_followers(
+			question=question,
+			triggered_by=user,
+			reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
+		)
 
 	output = CreateAnswerOutputSerializer(
 		data={
@@ -205,8 +217,13 @@ def update_answer(request, answer_id):
 		return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 	body = update_serializer.validated_data['body']
 
-	answer.body = body
-	answer.save()
+	with transaction.atomic():
+		answer.body = body
+		answer.save()
+		create_post_version(
+			post=answer,
+			reason='edited',
+		)
 	create_notification(
 		post=answer,
 		user=answer.user,
@@ -227,6 +244,49 @@ def update_answer(request, answer_id):
 	)
 	output.is_valid(raise_exception=True)
 	return Response(output.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_post_versions(request, post_id):
+	try:
+		post = Post.objects.select_related('team').get(id=post_id)
+	except Post.DoesNotExist:
+		return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+
+	membership_error = ensure_team_membership(team=post.team, user=request.user)
+	if membership_error:
+		return membership_error
+
+	versions = post.versions.order_by('version')
+	serializer = PostVersionOutputSerializer(versions, many=True)
+	return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def retrieve_post_version(request, post_id, version):
+	try:
+		post = Post.objects.select_related('team').get(id=post_id)
+	except Post.DoesNotExist:
+		return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+
+	membership_error = ensure_team_membership(team=post.team, user=request.user)
+	if membership_error:
+		return membership_error
+
+	try:
+		version_number = int(version)
+	except (TypeError, ValueError):
+		return Response({'error': 'version must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+	try:
+		version_obj = post.versions.get(version=version_number)
+	except PostVersion.DoesNotExist:
+		return Response({'error': 'Version not found'}, status=status.HTTP_404_NOT_FOUND)
+
+	serializer = PostVersionOutputSerializer(version_obj)
+	return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 # Handle delete answer.

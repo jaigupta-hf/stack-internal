@@ -67,6 +67,29 @@ class Post(models.Model):
 		return f'Post #{self.id}'
 
 
+class PostVersion(models.Model):
+	id = models.BigAutoField(primary_key=True)
+	post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='versions')
+	version = models.PositiveIntegerField()
+	title = models.CharField(max_length=255, blank=True, default='')
+	body = models.TextField(blank=True, default='')
+	tags_snapshot = models.JSONField(default=list)
+	reason = models.TextField(blank=True, default='')
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		db_table = 'post_versions'
+		constraints = [
+			models.UniqueConstraint(fields=['post', 'version'], name='uniq_post_version_number'),
+		]
+		indexes = [
+			models.Index(fields=['post', 'created_at'], name='post_ver_post_created_idx'),
+		]
+
+	def __str__(self):
+		return f'PostVersion #{self.id} (post={self.post_id}, version={self.version})'
+
+
 class Bookmark(models.Model):
 	id = models.BigAutoField(primary_key=True)
 	post = models.ForeignKey(Post, on_delete=models.CASCADE, null=True, blank=True, related_name='bookmarks')

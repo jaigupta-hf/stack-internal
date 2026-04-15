@@ -14,6 +14,8 @@ from .views import (
     remove_bookmark,
     list_bookmarks,
     list_followed_posts,
+    list_post_versions,
+    retrieve_post_version,
 )
 
 router = DefaultRouter()
@@ -39,6 +41,8 @@ urlpatterns = [
     path('answers/<int:answer_id>/delete/', delete_answer, name='delete-answer'),
     path('answers/<int:answer_id>/undelete/', undelete_answer, name='undelete-answer'),
     path('questions/<int:question_id>/approve-answer/', approve_answer, name='approve-answer'),
+    path('<int:post_id>/versions/', list_post_versions, name='list-post-versions'),
+    path('<int:post_id>/versions/<int:version>/', retrieve_post_version, name='retrieve-post-version'),
     path('questions/list/', question_list_alias, name='list-questions'),
     path('questions/search/', search_questions, name='search-questions'),
     path('search/global/', search_global_titles, name='search-global-titles'),
