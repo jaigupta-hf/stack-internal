@@ -19,7 +19,7 @@ function QuestionTabView({ embeddedMode = false, onOpenUserProfile, controller }
       />
 
       {controller.showQuestionHistory ? (
-        <QuestionHistoryPage controller={controller} />
+        <QuestionHistoryPage controller={controller} onOpenUserProfile={onOpenUserProfile} />
       ) : (
         <QuestionDetailPanel controller={controller} onOpenUserProfile={onOpenUserProfile} />
       )}

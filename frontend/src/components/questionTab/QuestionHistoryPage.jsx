@@ -1,4 +1,4 @@
-function QuestionHistoryPage({ controller }) {
+function QuestionHistoryPage({ controller, onOpenUserProfile }) {
   const {
     selectedQuestion,
     questionActivities,
@@ -7,44 +7,96 @@ function QuestionHistoryPage({ controller }) {
     questionActivityError,
     formatQuestionTime,
     handleCloseQuestionHistoryPage,
+    handleOpenHistoryReference,
   } = controller;
 
   if (!selectedQuestion) {
     return null;
   }
 
-  const renderActivityMessage = (activity) => {
-    const actorName = activity.actor_name || 'system';
+  const actorNode = (activity) => {
+    if (!activity.actor) {
+      return <span className="text-slate-300">system</span>;
+    }
 
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenUserProfile?.(activity.actor)}
+        className="font-medium text-cyan-200 transition hover:text-cyan-100 hover:underline"
+      >
+        {activity.actor_name}
+      </button>
+    );
+  };
+
+  const answerRefNode = (activity, label = 'answer') => {
+    if (!activity.answer) {
+      return label;
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleOpenHistoryReference('answer', activity.answer)}
+        className="font-medium text-cyan-200 transition hover:text-cyan-100 hover:underline"
+      >
+        {label}
+      </button>
+    );
+  };
+
+  const commentRefNode = (activity, label = 'comment') => {
+    if (!activity.comment) {
+      return label;
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleOpenHistoryReference('comment', activity.comment)}
+        className="font-medium text-cyan-200 transition hover:text-cyan-100 hover:underline"
+      >
+        {label}
+      </button>
+    );
+  };
+
+  const renderActivityMessage = (activity) => {
     switch (activity.action) {
       case 'post_created':
-        return `${actorName} created this post`;
+        return <>{actorNode(activity)} created this post</>;
       case 'post_edited':
-        return `${actorName} edited this post`;
+        return <>{actorNode(activity)} edited this post</>;
       case 'commented':
-        return activity.answer
-          ? `${actorName} commented on answer #${activity.answer}`
-          : `${actorName} commented on this post`;
+        if (activity.answer) {
+          return (
+            <>
+              {actorNode(activity)} posted a {commentRefNode(activity)} on an {answerRefNode(activity)}
+            </>
+          );
+        }
+        return <>{actorNode(activity)} posted a {commentRefNode(activity)} on this post</>;
       case 'answered':
-        return `${actorName} posted answer #${activity.answer}`;
+        return <>{actorNode(activity)} posted an {answerRefNode(activity)}</>;
       case 'post_deleted':
         return activity.answer
-          ? `${actorName} deleted answer #${activity.answer}`
-          : `${actorName} deleted this post`;
+          ? <>{actorNode(activity)} deleted an {answerRefNode(activity)}</>
+          : <>{actorNode(activity)} deleted this post</>;
       case 'post_undeleted':
         return activity.answer
-          ? `${actorName} undeleted answer #${activity.answer}`
-          : `${actorName} undeleted this post`;
+          ? <>{actorNode(activity)} undeleted an {answerRefNode(activity)}</>
+          : <>{actorNode(activity)} undeleted this post</>;
       case 'post_closed':
-        return `${actorName} closed this post`;
+        return <>{actorNode(activity)} closed this post</>;
       case 'post_reopened':
-        return `${actorName} reopened this post`;
+        return <>{actorNode(activity)} reopened this post</>;
       case 'bounty_started':
-        return `${actorName} started a bounty`;
+        return <>{actorNode(activity)} started a bounty</>;
       case 'bounty_ended':
         return activity.answer
-          ? `${actorName} ended the bounty and awarded answer #${activity.answer}`
-          : `${actorName} ended the bounty`;
+          ? <>{actorNode(activity)} ended the bounty and awarded an {answerRefNode(activity)}</>
+          : <>{actorNode(activity)} ended the bounty</>;
       default:
         return activity.action_label || activity.action || 'Unknown activity';
     }

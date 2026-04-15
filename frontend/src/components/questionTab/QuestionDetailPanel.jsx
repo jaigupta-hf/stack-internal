@@ -634,7 +634,7 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
                     && selectedQuestion.bounty?.awarded_answer === answer.id;
 
                   return (
-                    <li key={answer.id} className="rounded-2xl py-3">
+                    <li id={`answer-${answer.id}`} key={answer.id} className="rounded-2xl py-3">
                       <div className="flex items-start gap-2">
                         <div className="flex shrink-0 flex-col items-center gap-1">
                           <VotePanel

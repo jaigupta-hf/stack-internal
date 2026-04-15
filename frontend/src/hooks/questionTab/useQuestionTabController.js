@@ -720,6 +720,37 @@ function useQuestionTabController({ team }) {
     setShowQuestionHistory(false);
   }, []);
 
+  const handleOpenHistoryReference = useCallback((referenceType, referenceId) => {
+    if (!referenceId) {
+      return;
+    }
+
+    const targetPrefix = referenceType === 'comment' ? 'comment' : 'answer';
+    const targetElementId = `${targetPrefix}-${referenceId}`;
+
+    setShowQuestionHistory(false);
+    setCollapsedCommentSections({});
+
+    const scrollToTarget = () => {
+      const targetNode = document.getElementById(targetElementId);
+      if (!targetNode) {
+        return false;
+      }
+
+      targetNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return true;
+    };
+
+    requestAnimationFrame(() => {
+      if (scrollToTarget()) {
+        return;
+      }
+
+      setTimeout(scrollToTarget, 180);
+      setTimeout(scrollToTarget, 450);
+    });
+  }, [setCollapsedCommentSections]);
+
   const handleOpenQuestion = (questionId) => {
     openQuestionDetail(questionId, true);
   };
@@ -1191,6 +1222,7 @@ function useQuestionTabController({ team }) {
     loadQuestionActivities,
     handleOpenQuestionHistoryPage,
     handleCloseQuestionHistoryPage,
+    handleOpenHistoryReference,
     handleOpenCloseModal,
     handleCloseQuestion,
     handleReopenQuestion,
