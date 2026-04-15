@@ -4,7 +4,7 @@ from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.pagination import parse_pagination_params, paginate_queryset
+from apps.pagination import CustomPagination
 from comments.models import Comment
 from notifications.constants import (
     NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
@@ -53,7 +53,6 @@ from .serializers import (
     QuestionFollowStateOutputSerializer,
     QuestionListModelSerializer,
     QuestionUpdateSerializer,
-    QuestionListOutputSerializer,
     QuestionMentionsCreatedOutputSerializer,
     QuestionMentionInputSerializer,
     QuestionMentionsRemovedOutputSerializer,
@@ -70,6 +69,7 @@ class TeamScopedCrudViewSet(viewsets.ModelViewSet):
     """Base ModelViewSet that resolves team id by action for IsTeamMember checks."""
 
     permission_classes = [IsAuthenticated, IsTeamMember]
+    pagination_class = CustomPagination
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
     def _get_required_team_id(self, request):
@@ -129,11 +129,9 @@ class ArticleViewSet(TeamScopedCrudViewSet):
         if team_error:
             return team_error
 
-        page, page_size = parse_pagination_params(
-            request,
-            default_page_size=DEFAULT_ARTICLE_LIST_PAGE_SIZE,
-            max_page_size=MAX_ARTICLE_LIST_PAGE_SIZE,
-        )
+        paginator = CustomPagination()
+        paginator.page_size = DEFAULT_ARTICLE_LIST_PAGE_SIZE
+        paginator.max_page_size = MAX_ARTICLE_LIST_PAGE_SIZE
 
         articles = (
             Post.objects.filter(team_id=team_id, type__in=ARTICLE_TYPE_VALUES, delete_flag=False)
@@ -141,7 +139,7 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             .prefetch_related(tag_prefetch('article_tag_posts'))
             .order_by('-created_at')
         )
-        articles, _ = paginate_queryset(articles, page=page, page_size=page_size)
+        articles = paginator.paginate_queryset(articles, request, view=self)
 
         article_ids = [article.id for article in articles]
         post_vote_map, bookmarked_post_ids = self.get_user_interactions_map(request, article_ids)
@@ -308,8 +306,6 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         if team_error:
             return team_error
 
-        page, page_size = parse_pagination_params(request)
-
         questions = (
             Post.objects.filter(team_id=team_id, type=0, delete_flag=False)
             .annotate(
@@ -322,7 +318,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             .prefetch_related(tag_prefetch('question_tag_posts'))
             .order_by('-created_at')
         )
-        questions, pagination = paginate_queryset(questions, page=page, page_size=page_size)
+        questions = self.paginate_queryset(questions)
 
         question_ids = [question.id for question in questions]
         expired_question_ids = self._cleanup_expired_bounties(question_ids)
@@ -347,10 +343,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
                 'bookmarked_post_ids': bookmarked_post_ids,
             },
         )
-
-        output = QuestionListOutputSerializer(data={'items': serializer.data, 'pagination': pagination})
-        output.is_valid(raise_exception=True)
-        return Response(output.data, status=status.HTTP_200_OK)
+        return self.get_paginated_response(serializer.data)
 
     def perform_create(self, serializer):
         validated = serializer.validated_data
@@ -638,15 +631,18 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
         self.check_object_permissions(request, question)
 
-        page, page_size = parse_pagination_params(request, default_page_size=20, max_page_size=200)
         queryset = (
             PostActivity.objects.filter(post_id=question.id)
             .select_related('actor')
             .order_by('-created_at', '-id')
         )
-        activities, pagination = paginate_queryset(queryset, page=page, page_size=page_size)
+
+        paginator = CustomPagination()
+        paginator.page_size = 20
+        paginator.max_page_size = 200
+        activities = paginator.paginate_queryset(queryset, request, view=self)
         serializer = PostActivityOutputSerializer(activities, many=True)
-        return Response({'items': serializer.data, 'pagination': pagination}, status=status.HTTP_200_OK)
+        return paginator.get_paginated_response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='follow')
     def follow(self, request, pk=None):

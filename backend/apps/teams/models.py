@@ -9,6 +9,9 @@ class Team(models.Model):
 
 	class Meta:
 		db_table = 'teams'
+		constraints = [
+			models.UniqueConstraint(fields=['name'], name='uniq_team_name'),
+		]
 
 	def __str__(self):
 		return self.name
@@ -28,6 +31,10 @@ class TeamUser(models.Model):
 		db_table = 'team_users'
 		constraints = [
 			models.UniqueConstraint(fields=['team', 'user'], name='uniq_team_user'),
+			models.CheckConstraint(
+				condition=models.Q(reputation__gte=1),
+				name='team_user_reputation_gte_1',
+			),
 		]
 
 	def __str__(self):

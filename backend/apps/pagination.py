@@ -1,39 +1,26 @@
-from math import ceil
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
 
 
-# Helper to to positive int.
-def _to_positive_int(value, default):
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed > 0 else default
+class CustomPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
+    def get_pagination_data(self):
+        return {
+            'page': self.page.number,
+            'page_size': self.get_page_size(self.request),
+            'total_items': self.page.paginator.count,
+            'total_pages': self.page.paginator.num_pages,
+            'has_next': self.page.has_next(),
+            'has_previous': self.page.has_previous(),
+        }
 
-# Handle parse pagination params.
-def parse_pagination_params(request, *, default_page_size=20, max_page_size=100):
-    page = _to_positive_int(request.query_params.get('page'), 1)
-    page_size = _to_positive_int(request.query_params.get('page_size'), default_page_size)
-    page_size = min(page_size, max_page_size)
-    return page, page_size
-
-
-# Helper to build pagination.
-def _build_pagination(page, page_size, total_items):
-    total_pages = ceil(total_items / page_size) if total_items else 0
-    return {
-        'page': page,
-        'page_size': page_size,
-        'total_items': total_items,
-        'total_pages': total_pages,
-        'has_next': page < total_pages,
-        'has_previous': page > 1,
-    }
-
-
-# Handle paginate queryset.
-def paginate_queryset(queryset, *, page, page_size):
-    total_items = queryset.count()
-    offset = (page - 1) * page_size
-    items = list(queryset[offset:offset + page_size])
-    return items, _build_pagination(page, page_size, total_items)
+    def get_paginated_response(self, data):
+        return Response(
+            {
+                'items': data,
+                'pagination': self.get_pagination_data(),
+            }
+        )

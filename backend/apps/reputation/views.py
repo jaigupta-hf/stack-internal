@@ -5,7 +5,7 @@ from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.pagination import parse_pagination_params, paginate_queryset
+from apps.pagination import CustomPagination
 from teams.permissions import IsTeamMember, get_team_membership
 
 from .models import ReputationHistory
@@ -36,8 +36,6 @@ class ReputationHistoryListView(ListAPIView):
         if get_team_membership(team_id=team_id, user_id=target_user_id) is None:
             return Response({'error': 'Target user is not a member of this team'}, status=status.HTTP_404_NOT_FOUND)
 
-        page, page_size = parse_pagination_params(request)
-
         history = (
             ReputationHistory.objects.filter(team_id=team_id, user_id=target_user_id)
             .select_related('post', 'post__parent', 'triggered_by')
@@ -54,7 +52,10 @@ class ReputationHistoryListView(ListAPIView):
             )
             .order_by('-created_at')
         )
-        history, pagination = paginate_queryset(history, page=page, page_size=page_size)
+
+        paginator = CustomPagination()
+        history = paginator.paginate_queryset(history, request, view=self)
+        pagination = paginator.get_pagination_data()
 
         grouped = OrderedDict()
         for item in history:
