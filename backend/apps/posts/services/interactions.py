@@ -3,21 +3,12 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
-from notifications.api import create_notification
-from notifications.constants import (
-    NOTIFICATION_REASON_QUESTION_CLOSED,
-    NOTIFICATION_REASON_QUESTION_DELETED,
-)
-from reputation.api import apply_reputation_change
-from reputation.constants import (
-    BOUNTY_AMOUNT,
-    REPUTATION_REASON_BOUNTY_EARNED,
-    REPUTATION_REASON_BOUNTY_OFFERED,
-)
+from reputation.constants import BOUNTY_AMOUNT
 from reputation.models import Bounty
 from teams.models import TeamUser
 
 from ..constants import BOUNTY_DURATION_DAYS
+from ..domain_events import bounty_awarded, emit_post_event, question_closed, question_deleted
 from ..models import Post, PostActivity
 from .tracking import create_post_activity
 
@@ -100,28 +91,18 @@ class PostInteractionService:
 
         Post.objects.filter(id=question.id).update(bounty_amount=0)
         question.refresh_from_db(fields=['bounty_amount'])
-
-        apply_reputation_change(
-            user=question.user,
-            team=question.team,
-            triggered_by=actor,
-            post=question,
-            points=-BOUNTY_AMOUNT,
-            reason=REPUTATION_REASON_BOUNTY_OFFERED,
-        )
-        apply_reputation_change(
-            user=answer.user,
-            team=question.team,
-            triggered_by=actor,
-            post=answer,
-            points=BOUNTY_AMOUNT,
-            reason=REPUTATION_REASON_BOUNTY_EARNED,
-        )
         create_post_activity(
             post=question,
             answer=answer,
             actor=actor,
             action=PostActivity.Action.BOUNTY_ENDED,
+        )
+        emit_post_event(
+            bounty_awarded,
+            question_id=question.id,
+            answer_id=answer.id,
+            actor_id=actor.id,
+            amount=BOUNTY_AMOUNT,
         )
         return bounty
 
@@ -140,12 +121,7 @@ class PostInteractionService:
             actor=actor,
             action=PostActivity.Action.POST_CLOSED,
         )
-        create_notification(
-            post=question,
-            user=question.user,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_QUESTION_CLOSED,
-        )
+        emit_post_event(question_closed, question_id=question.id, actor_id=actor.id)
         return closed_at
 
     @staticmethod
@@ -175,12 +151,7 @@ class PostInteractionService:
             actor=actor,
             action=PostActivity.Action.POST_DELETED,
         )
-        create_notification(
-            post=question,
-            user=question.user,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_QUESTION_DELETED,
-        )
+        emit_post_event(question_deleted, question_id=question.id, actor_id=actor.id)
         return True
 
     @staticmethod
