@@ -16,7 +16,7 @@ from posts.constants import (
 	POST_TYPE_POLICY,
 	POST_TYPE_QUESTION,
 )
-from posts.models import Post
+from posts.models import Post, PostVersion
 
 
 class RouterEndpointTests(APITestCase):
@@ -264,3 +264,63 @@ class RouterEndpointTests(APITestCase):
 			format='json',
 		)
 		self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_question_versions_are_created_on_create_and_edit(self):
+		response = self.client.post(
+			'/api/posts/questions/',
+			{
+				'team_id': self.team.id,
+				'title': 'Versioned question',
+				'body': 'Versioned body',
+				'tags': ['django'],
+			},
+			format='json',
+		)
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		question = Post.objects.get(id=response.data['id'])
+		self.assertEqual(PostVersion.objects.filter(post=question).count(), 1)
+		self.assertEqual(PostVersion.objects.get(post=question, version=1).body, 'Versioned body')
+
+		update_response = self.client.patch(
+			f'/api/posts/questions/{question.id}/',
+			{'title': 'Versioned question v2', 'body': 'Versioned body v2', 'tags': ['django', 'api']},
+			format='json',
+		)
+		self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(PostVersion.objects.filter(post=question).count(), 2)
+		self.assertEqual(PostVersion.objects.get(post=question, version=2).body, 'Versioned body v2')
+
+		versions_response = self.client.get(f'/api/posts/{question.id}/versions/')
+		self.assertEqual(versions_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(versions_response.data), 2)
+		self.assertEqual(versions_response.data[0]['version'], 1)
+
+	def test_answer_versions_are_created_on_create_and_edit(self):
+		question = Post.objects.create(
+			type=POST_TYPE_QUESTION,
+			title='Question for answer versions',
+			body='Question body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+
+		create_response = self.client.post(
+			f'/api/posts/questions/{question.id}/answers/',
+			{'body': 'Answer v1'},
+			format='json',
+		)
+		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+		answer = Post.objects.get(id=create_response.data['id'])
+		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 1)
+		self.assertEqual(PostVersion.objects.get(post=answer, version=1).body, 'Answer v1')
+
+		update_response = self.client.patch(
+			f'/api/posts/answers/{answer.id}/',
+			{'body': 'Answer v2'},
+			format='json',
+		)
+		self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 2)
+		self.assertEqual(PostVersion.objects.get(post=answer, version=2).body, 'Answer v2')

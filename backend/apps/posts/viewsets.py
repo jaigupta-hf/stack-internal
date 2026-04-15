@@ -32,6 +32,7 @@ from teams.permissions import IsTeamMember
 from votes.models import Vote
 
 from tags.api import serialize_post_tags, sync_post_tags, sync_user_tags_for_post, tag_prefetch
+from .versioning import create_post_version
 
 from .constants import (
     ARTICLE_TYPE_TO_LABEL,
@@ -43,6 +44,7 @@ from .constants import (
 )
 from .models import Bookmark, Post
 from .models import PostFollow
+from .models import PostVersion
 from .serializers import (
     ArticleDetailModelSerializer,
     ArticleListModelSerializer,
@@ -55,6 +57,7 @@ from .serializers import (
     CreateQuestionSerializer,
     OfferQuestionBountyInputSerializer,
     PostDeleteStateOutputSerializer,
+    PostVersionOutputSerializer,
     QuestionBountyStateOutputSerializer,
     QuestionAwardBountyOutputSerializer,
     QuestionCloseOutputSerializer,
@@ -180,6 +183,11 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             )
             sync_post_tags(article, validated['tags'])
             sync_user_tags_for_post(self.request.user, article)
+            create_post_version(
+				post=article,
+				reason='created',
+				prefetched_attr='article_tag_posts',
+			)
         return article
 
     def create(self, request, *args, **kwargs):
@@ -264,6 +272,11 @@ class ArticleViewSet(TeamScopedCrudViewSet):
             article.type = validated['type']
             article.save()
             sync_post_tags(article, validated['tags'])
+            create_post_version(
+				post=article,
+				reason='edited',
+				prefetched_attr='article_tag_posts',
+			)
 
         article = (
             Post.objects.select_related('user')
@@ -360,6 +373,11 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             )
             sync_post_tags(question, validated.get('tags', []))
             sync_user_tags_for_post(self.request.user, question)
+            create_post_version(
+				post=question,
+				reason='created',
+				prefetched_attr='question_tag_posts',
+			)
         return question
 
     def create(self, request, *args, **kwargs):
@@ -612,6 +630,12 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             if tags is not None:
                 sync_post_tags(question, tags)
 
+            create_post_version(
+				post=question,
+				reason='edited',
+				prefetched_attr='question_tag_posts',
+			)
+
         create_notification(
             post=question,
             user=question.user,
@@ -623,6 +647,41 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         self.check_object_permissions(request, question)
 
         return self._build_question_detail_response(request, question)
+
+    @action(detail=True, methods=['get'], url_path='versions')
+    def versions(self, request, pk=None):
+        try:
+            question = self._question_detail_queryset(request.user).get(id=pk, type=0)
+        except Post.DoesNotExist:
+            return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        self.check_object_permissions(request, question)
+
+        versions = question.versions.order_by('version')
+        serializer = PostVersionOutputSerializer(versions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path=r'versions/(?P<version>[^/.]+)')
+    def version_detail(self, request, pk=None, version=None):
+        try:
+            question = self._question_detail_queryset(request.user).get(id=pk, type=0)
+        except Post.DoesNotExist:
+            return Response({'error': 'Question not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        self.check_object_permissions(request, question)
+
+        try:
+            version_number = int(version)
+        except (TypeError, ValueError):
+            return Response({'error': 'version must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            version_obj = question.versions.get(version=version_number)
+        except PostVersion.DoesNotExist:
+            return Response({'error': 'Version not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = PostVersionOutputSerializer(version_obj)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='follow')
     def follow(self, request, pk=None):
