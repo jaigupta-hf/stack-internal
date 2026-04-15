@@ -17,13 +17,18 @@ Current enforcement highlights:
 - Question bounty offer/award and mention removal are author-only.
 
 ## Main Files
-- `models.py`: `Post`, `Bookmark`, `PostFollow`.
-- `views.py`: entry module for answer lifecycle, question search, and bookmark endpoints.
-- `views_questions.py`: question and global title search handlers.
-- `viewsets.py`: router-backed question/article list/create/detail/update plus question interaction and moderation actions.
-- `views_bookmarks.py`: bookmark and follows list endpoints.
-- `views_common.py`: shared helpers/constants.
-- `serializers.py`: large input/output schema surface.
+- `models.py`: `Post`, `Bookmark`, `PostFollow`, `PostActivity`, `PostVersion`.
+- `api/viewsets.py`: router-backed question/article CRUD and question interactions.
+- `api/views.py`: answer lifecycle and approve-answer handlers.
+- `api/views_questions.py`: question and global title search handlers.
+- `api/views_bookmarks.py`: bookmark and follows list endpoints.
+- `api/views_common.py`: shared response/helper utilities.
+- `api/serializers.py`: input/output schema surface.
+- `api/permissions.py`: post author/admin permission classes.
+- `services/posts.py`: content workflows (question/article/answer create/update/delete/undelete).
+- `services/interactions.py`: bounty and question state transitions.
+- `services/tracking.py`: post activity and version snapshot helpers.
+- `domain_events.py`: app-domain events emitted on commit for cross-app side effects.
 - `urls.py`: routes under `/api/posts/*`.
 
 ## Post Types
@@ -82,20 +87,20 @@ Question/article CRUD is implemented in DRF ViewSets. Compatibility aliases like
 ## Cross-App Dependencies
 - `teams.permissions`: membership guards.
 - `tags.api`: tag syncing, prefetch, serialization.
-- `notifications.api/models`: side-effect notifications.
-- `reputation.api/models`: reputation changes and bounties.
+- `notifications`: receives post domain events and creates notifications.
+- `reputation`: receives post domain events and applies reputation changes.
 - `comments.models`, `votes.models`, `apps.collections.models`: detail payload composition.
 
 ## Key Side Effects
 - Tag counters and user tag usage updated when creating/editing content.
-- Notifications emitted for answer/comment/edit/approval events.
-- Reputation adjusted for accepts, upvotes/downvotes, and bounty actions.
+- Post lifecycle methods emit events via `domain_events.emit_post_event(...)`.
+- Notifications and reputation are handled by receivers in their own apps.
 - Counter fields (`answer_count`, `vote_count`, `bookmarks_count`, `views_count`) updated incrementally.
 - Expired offered bounties are cleaned lazily on question reads and bounty actions (bounty row deleted, `Post.bounty_amount` reset to `0`).
 
 ## Developer Guidance
-- Keep question/article CRUD and question actions in `viewsets.py`; keep answer/search/bookmark concerns in their focused modules.
+- Keep HTTP concerns in `api/*` and business orchestration in `services/*`.
 - Wrap multi-model writes in `transaction.atomic()`.
 - Reuse serializer contracts for stable response shape.
 - Preserve membership checks before any team-scoped read/write.
-- For new interaction features, add shared bits to `views_common.py` when broadly reusable.
+- Prefer emitting domain events for cross-app side effects instead of importing other app APIs directly.

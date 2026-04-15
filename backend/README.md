@@ -46,6 +46,22 @@ backend/
 5. Business logic executes and serializes response via input/output serializers.
 6. Side effects (notifications, reputation changes, counts, follows, tag stats) are applied transactionally where needed.
 
+## Service And Event Architecture
+
+The backend is organized to keep transport concerns separate from business logic and cross-app side effects.
+
+1. API layer: endpoint modules handle HTTP parsing, serializer validation, permission checks, and response contracts.
+2. Service layer: app services execute write/read orchestration and transactional model updates.
+3. Domain events: mutating workflows emit app-domain events (for example in `apps/posts/domain_events.py`).
+4. Receivers: dependent apps subscribe to events and apply side effects without tight coupling.
+
+Current example:
+- `apps/posts/api/*` -> request handling
+- `apps/posts/services/*` -> post workflows
+- `apps/posts/domain_events.py` -> events emitted on commit
+- `apps/notifications/receivers.py` -> notification side effects
+- `apps/reputation/receivers.py` -> reputation side effects
+
 ## Domain Model Overview
 
 - `users.User`: Profile identity used across the app.
