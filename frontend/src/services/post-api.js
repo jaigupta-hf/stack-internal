@@ -189,7 +189,7 @@ export const postService = {
     const response = await api.get('/posts/bookmarks/list/', {
       params,
     });
-    return response.data;
+    return asList(response.data);
   },
 
   async listFollowedPosts(teamId, userId = null, options = {}) {
@@ -201,6 +201,6 @@ export const postService = {
     const response = await api.get('/posts/follows/list/', {
       params,
     });
-    return response.data;
+    return asList(response.data);
   },
 };
