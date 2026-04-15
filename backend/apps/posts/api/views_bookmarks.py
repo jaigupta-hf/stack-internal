@@ -14,8 +14,8 @@ from apps.collections.models import Collection
 
 from tags.api import serialize_post_tags, tag_prefetch
 
-from .models import Bookmark, Post, PostFollow
-from .constants import (
+from ..models import Bookmark, Post, PostFollow
+from ..constants import (
     DEFAULT_BOOKMARK_LIST_PAGE_SIZE,
     DEFAULT_FOLLOWED_POSTS_PAGE_SIZE,
     MAX_BOOKMARK_LIST_PAGE_SIZE,

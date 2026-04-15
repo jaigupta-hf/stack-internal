@@ -1,13 +1,10 @@
-from django.db.models import F
-from django.db.models.functions import Coalesce, Greatest
-from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from teams.permissions import ensure_team_membership
-from .activity import create_post_activity, resolve_activity_post_and_answer
-from .models import Post, PostActivity, PostVersion
+from ..models import Post, PostVersion
+from ..services import PostService
 from .serializers import (
 	ApproveAnswerInputSerializer,
 	ApproveAnswerOutputSerializer,
@@ -20,13 +17,9 @@ from .serializers import (
 	UpdateAnswerInputSerializer,
 	UpdateAnswerOutputSerializer,
 )
-from tags.api import sync_post_tags, sync_user_tags_for_post
 from notifications.api import create_notification
 from notifications.constants import (
-	NOTIFICATION_REASON_ANSWER_EDITED,
-	NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
 	NOTIFICATION_REASON_APPROVED_ANSWER_ON_FOLLOWED_POST,
-	NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
 	NOTIFICATION_REASON_YOUR_ANSWER_WAS_APPROVED,
 )
 from reputation.api import apply_reputation_change
@@ -40,7 +33,6 @@ from .views_common import (
 	_first_serializer_error,
 	_notify_question_followers,
 )
-from .versioning import create_post_version
 from .views_questions import (
 	search_global_titles,
 	search_questions,
@@ -66,36 +58,19 @@ def create_question(request):
 	team = serializer.validated_data['team']
 	title = serializer.validated_data['title']
 	body = serializer.validated_data['body']
-	tag_names = serializer.validated_data.get('tags', [])
+	tags = serializer.validated_data.get('tags', [])
 
 	membership_error = ensure_team_membership(team=team, user=user)
 	if membership_error:
 		return membership_error
 
-	with transaction.atomic():
-		post = Post.objects.create(
-			type=0,
-			title=title,
-			body=body,
-			parent=None,
-			team=team,
-			user=user,
-			approved_answer=None,
-		)
-
-		sync_post_tags(post, tag_names)
-		sync_user_tags_for_post(user, post)
-		version = create_post_version(
-			post=post,
-			reason='created',
-			prefetched_attr='question_tag_posts',
-		)
-		create_post_activity(
-			post=post,
-			actor=user,
-			action=PostActivity.Action.POST_CREATED,
-			post_version=version,
-		)
+	post = PostService.create_question(
+		user=user,
+		team=team,
+		title=title,
+		body=body,
+		tags=tags,
+	)
 
 	output = CreateQuestionOutputSerializer(
 		data={
@@ -142,47 +117,7 @@ def create_answer(request, question_id):
 
 	body = serializer.validated_data['body']
 
-	with transaction.atomic():
-		answer = Post.objects.create(
-			type=1,
-			title='',
-			body=body,
-			parent=question,
-			team=question.team,
-			user=user,
-			views_count=0,
-			vote_count=0,
-			approved_answer=None,
-			closed_reason='',
-			closed_at=None,
-			closed_by=None,
-			delete_flag=False,
-			bounty_amount=0,
-		)
-		version = create_post_version(
-			post=answer,
-			reason='created',
-		)
-		create_post_activity(
-			post=question,
-			answer=answer,
-			actor=user,
-			action=PostActivity.Action.ANSWERED,
-			post_version=version,
-		)
-
-		Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
-		create_notification(
-			post=question,
-			user=question.user,
-			triggered_by=user,
-			reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
-		)
-		_notify_question_followers(
-			question=question,
-			triggered_by=user,
-			reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
-		)
+	answer = PostService.create_answer(question=question, actor=user, body=body)
 
 	output = CreateAnswerOutputSerializer(
 		data={
@@ -231,27 +166,7 @@ def update_answer(request, answer_id):
 		return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 	body = update_serializer.validated_data['body']
 
-	with transaction.atomic():
-		answer.body = body
-		answer.save()
-		version = create_post_version(
-			post=answer,
-			reason='edited',
-		)
-		activity_post, activity_answer = resolve_activity_post_and_answer(answer)
-		create_post_activity(
-			post=activity_post,
-			answer=activity_answer,
-			actor=user,
-			action=PostActivity.Action.POST_EDITED,
-			post_version=version,
-		)
-	create_notification(
-		post=answer,
-		user=answer.user,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_ANSWER_EDITED,
-	)
+	PostService.update_answer(answer=answer, actor=user, body=body)
 
 	output = UpdateAnswerOutputSerializer(
 		data={
@@ -329,22 +244,7 @@ def delete_answer(request, answer_id):
 	if answer.user_id != user.id:
 		return Response({'error': 'Only the answer author can delete this answer'}, status=status.HTTP_403_FORBIDDEN)
 
-	if not answer.delete_flag:
-		with transaction.atomic():
-			Post.objects.filter(id=answer.id).update(delete_flag=True)
-			if answer.parent_id:
-				Post.objects.filter(id=answer.parent_id).update(
-					answer_count=Greatest(Coalesce(F('answer_count'), 0) - 1, 0)
-				)
-				Post.objects.filter(id=answer.parent_id, approved_answer_id=answer.id).update(approved_answer=None)
-
-			activity_post, activity_answer = resolve_activity_post_and_answer(answer)
-			create_post_activity(
-				post=activity_post,
-				answer=activity_answer,
-				actor=user,
-				action=PostActivity.Action.POST_DELETED,
-			)
+	PostService.delete_answer(answer=answer, actor=user)
 
 	output = PostDeleteStateOutputSerializer(
 		data={
@@ -375,19 +275,7 @@ def undelete_answer(request, answer_id):
 	if answer.user_id != user.id:
 		return Response({'error': 'Only the answer author can undelete this answer'}, status=status.HTTP_403_FORBIDDEN)
 
-	if answer.delete_flag:
-		with transaction.atomic():
-			Post.objects.filter(id=answer.id).update(delete_flag=False)
-			if answer.parent_id:
-				Post.objects.filter(id=answer.parent_id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
-
-			activity_post, activity_answer = resolve_activity_post_and_answer(answer)
-			create_post_activity(
-				post=activity_post,
-				answer=activity_answer,
-				actor=user,
-				action=PostActivity.Action.POST_UNDELETED,
-			)
+	PostService.undelete_answer(answer=answer, actor=user)
 
 	output = PostDeleteStateOutputSerializer(
 		data={

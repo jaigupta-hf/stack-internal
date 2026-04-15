@@ -7,7 +7,7 @@ from teams.permissions import IsTeamMember
 from teams.utils import get_team_member_name
 from users.models import User
 from apps.collections.models import Collection
-from posts.activity import create_post_activity
+from posts.services.tracking import create_post_activity
 from posts.constants import POST_TYPE_ANSWER
 from posts.models import Post, PostActivity
 from posts.models import PostFollow
