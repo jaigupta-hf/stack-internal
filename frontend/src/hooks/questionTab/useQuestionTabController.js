@@ -37,6 +37,11 @@ function useQuestionTabController({ team }) {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [listError, setListError] = useState('');
   const [selectedQuestion, setSelectedQuestion] = useState(null);
+  const [questionActivities, setQuestionActivities] = useState([]);
+  const [questionActivityPagination, setQuestionActivityPagination] = useState(null);
+  const [loadingQuestionActivities, setLoadingQuestionActivities] = useState(false);
+  const [questionActivityError, setQuestionActivityError] = useState('');
+  const [showQuestionHistory, setShowQuestionHistory] = useState(false);
   const [isEditingQuestion, setIsEditingQuestion] = useState(false);
   const [isEditingTagsOnly, setIsEditingTagsOnly] = useState(false);
   const [editQuestionTitle, setEditQuestionTitle] = useState('');
@@ -361,6 +366,11 @@ function useQuestionTabController({ team }) {
   });
 
   const resetQuestionDetailState = useCallback(() => {
+    setQuestionActivities([]);
+    setQuestionActivityPagination(null);
+    setLoadingQuestionActivities(false);
+    setQuestionActivityError('');
+    setShowQuestionHistory(false);
     setIsEditingQuestion(false);
     setIsEditingTagsOnly(false);
     setEditQuestionError('');
@@ -392,6 +402,11 @@ function useQuestionTabController({ team }) {
     setOfferingBounty(false);
     setAwardingBountyAnswerId(null);
   }, [
+    setQuestionActivities,
+    setQuestionActivityPagination,
+    setLoadingQuestionActivities,
+    setQuestionActivityError,
+    setShowQuestionHistory,
     resetCommentSectionState,
     setShowAnswerSection,
     setAnswerError,
@@ -665,6 +680,45 @@ function useQuestionTabController({ team }) {
       setListError(err.response?.data?.error || 'Failed to open question.');
     }
   }, [resetQuestionDetailState, setQuestionIdInUrl]);
+
+  const loadQuestionActivities = useCallback(async (questionId, options = {}) => {
+    if (!questionId) {
+      setQuestionActivities([]);
+      setQuestionActivityPagination(null);
+      return;
+    }
+
+    setLoadingQuestionActivities(true);
+    setQuestionActivityError('');
+
+    try {
+      const payload = await postService.listQuestionActivities(questionId, {
+        page: options.page || 1,
+        pageSize: options.pageSize || 50,
+      });
+      setQuestionActivities(Array.isArray(payload?.items) ? payload.items : []);
+      setQuestionActivityPagination(payload?.pagination || null);
+    } catch (err) {
+      setQuestionActivities([]);
+      setQuestionActivityPagination(null);
+      setQuestionActivityError(err.response?.data?.error || 'Failed to load question history.');
+    } finally {
+      setLoadingQuestionActivities(false);
+    }
+  }, []);
+
+  const handleOpenQuestionHistoryPage = useCallback(async () => {
+    if (!selectedQuestion) {
+      return;
+    }
+
+    setShowQuestionHistory(true);
+    await loadQuestionActivities(selectedQuestion.id, { page: 1, pageSize: 50 });
+  }, [loadQuestionActivities, selectedQuestion]);
+
+  const handleCloseQuestionHistoryPage = useCallback(() => {
+    setShowQuestionHistory(false);
+  }, []);
 
   const handleOpenQuestion = (questionId) => {
     openQuestionDetail(questionId, true);
@@ -954,6 +1008,16 @@ function useQuestionTabController({ team }) {
     setListError,
     selectedQuestion,
     setSelectedQuestion,
+    questionActivities,
+    setQuestionActivities,
+    questionActivityPagination,
+    setQuestionActivityPagination,
+    loadingQuestionActivities,
+    setLoadingQuestionActivities,
+    questionActivityError,
+    setQuestionActivityError,
+    showQuestionHistory,
+    setShowQuestionHistory,
     isEditingQuestion,
     setIsEditingQuestion,
     isEditingTagsOnly,
@@ -1124,6 +1188,9 @@ function useQuestionTabController({ team }) {
     handleOpenQuestion,
     handleListQuestionUpvote,
     handleToggleQuestionBookmark,
+    loadQuestionActivities,
+    handleOpenQuestionHistoryPage,
+    handleCloseQuestionHistoryPage,
     handleOpenCloseModal,
     handleCloseQuestion,
     handleReopenQuestion,

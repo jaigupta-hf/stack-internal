@@ -7,7 +7,9 @@ from teams.permissions import IsTeamMember
 from teams.utils import get_team_member_name
 from users.models import User
 from apps.collections.models import Collection
-from posts.models import Post
+from posts.activity import create_post_activity
+from posts.constants import POST_TYPE_ANSWER
+from posts.models import Post, PostActivity
 from posts.models import PostFollow
 from notifications.api import create_notification
 from notifications.constants import (
@@ -147,6 +149,20 @@ class CommentViewSet(viewsets.GenericViewSet):
 			user=user,
 			vote_count=0,
 		)
+
+		if post:
+			activity_post = post
+			activity_answer = None
+			if post.type == POST_TYPE_ANSWER and post.parent_id:
+				activity_post = post.parent
+				activity_answer = post
+			create_post_activity(
+				post=activity_post,
+				comment=comment,
+				answer=activity_answer,
+				actor=user,
+				action=PostActivity.Action.COMMENTED,
+			)
 
 		if is_reply and parent_comment:
 			create_notification(

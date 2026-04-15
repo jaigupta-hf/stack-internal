@@ -38,6 +38,7 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
     formatQuestionTime,
     handleQuestionVote,
     handleToggleQuestionBookmark,
+    handleOpenQuestionHistoryPage,
     handleApplyTagFilter,
     handleStartTagsEdit,
     mentionSearchOpen,
@@ -336,6 +337,9 @@ function QuestionDetailPanel({ controller, onOpenUserProfile }) {
               isBookmarked={Boolean(selectedQuestion.is_bookmarked)}
               onToggleBookmark={() => handleToggleQuestionBookmark(selectedQuestion.id)}
               bookmarkAriaLabel="Bookmark question"
+              showHistory
+              onToggleHistory={handleOpenQuestionHistoryPage}
+              historyAriaLabel="Show post history"
               showBookmarkCount
               bookmarkCount={selectedQuestion.bookmarks_count}
             />

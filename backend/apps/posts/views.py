@@ -6,7 +6,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from teams.permissions import ensure_team_membership
-from .models import Post, PostVersion
+from .activity import create_post_activity, resolve_activity_post_and_answer
+from .models import Post, PostActivity, PostVersion
 from .serializers import (
 	ApproveAnswerInputSerializer,
 	ApproveAnswerOutputSerializer,
@@ -84,10 +85,16 @@ def create_question(request):
 
 		sync_post_tags(post, tag_names)
 		sync_user_tags_for_post(user, post)
-		create_post_version(
+		version = create_post_version(
 			post=post,
 			reason='created',
 			prefetched_attr='question_tag_posts',
+		)
+		create_post_activity(
+			post=post,
+			actor=user,
+			action=PostActivity.Action.POST_CREATED,
+			post_version=version,
 		)
 
 	output = CreateQuestionOutputSerializer(
@@ -152,9 +159,16 @@ def create_answer(request, question_id):
 			delete_flag=False,
 			bounty_amount=0,
 		)
-		create_post_version(
+		version = create_post_version(
 			post=answer,
 			reason='created',
+		)
+		create_post_activity(
+			post=question,
+			answer=answer,
+			actor=user,
+			action=PostActivity.Action.ANSWERED,
+			post_version=version,
 		)
 
 		Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
@@ -220,9 +234,17 @@ def update_answer(request, answer_id):
 	with transaction.atomic():
 		answer.body = body
 		answer.save()
-		create_post_version(
+		version = create_post_version(
 			post=answer,
 			reason='edited',
+		)
+		activity_post, activity_answer = resolve_activity_post_and_answer(answer)
+		create_post_activity(
+			post=activity_post,
+			answer=activity_answer,
+			actor=user,
+			action=PostActivity.Action.POST_EDITED,
+			post_version=version,
 		)
 	create_notification(
 		post=answer,
@@ -308,12 +330,21 @@ def delete_answer(request, answer_id):
 		return Response({'error': 'Only the answer author can delete this answer'}, status=status.HTTP_403_FORBIDDEN)
 
 	if not answer.delete_flag:
-		Post.objects.filter(id=answer.id).update(delete_flag=True)
-		if answer.parent_id:
-			Post.objects.filter(id=answer.parent_id).update(
-				answer_count=Greatest(Coalesce(F('answer_count'), 0) - 1, 0)
+		with transaction.atomic():
+			Post.objects.filter(id=answer.id).update(delete_flag=True)
+			if answer.parent_id:
+				Post.objects.filter(id=answer.parent_id).update(
+					answer_count=Greatest(Coalesce(F('answer_count'), 0) - 1, 0)
+				)
+				Post.objects.filter(id=answer.parent_id, approved_answer_id=answer.id).update(approved_answer=None)
+
+			activity_post, activity_answer = resolve_activity_post_and_answer(answer)
+			create_post_activity(
+				post=activity_post,
+				answer=activity_answer,
+				actor=user,
+				action=PostActivity.Action.POST_DELETED,
 			)
-			Post.objects.filter(id=answer.parent_id, approved_answer_id=answer.id).update(approved_answer=None)
 
 	output = PostDeleteStateOutputSerializer(
 		data={
@@ -345,9 +376,18 @@ def undelete_answer(request, answer_id):
 		return Response({'error': 'Only the answer author can undelete this answer'}, status=status.HTTP_403_FORBIDDEN)
 
 	if answer.delete_flag:
-		Post.objects.filter(id=answer.id).update(delete_flag=False)
-		if answer.parent_id:
-			Post.objects.filter(id=answer.parent_id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
+		with transaction.atomic():
+			Post.objects.filter(id=answer.id).update(delete_flag=False)
+			if answer.parent_id:
+				Post.objects.filter(id=answer.parent_id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
+
+			activity_post, activity_answer = resolve_activity_post_and_answer(answer)
+			create_post_activity(
+				post=activity_post,
+				answer=activity_answer,
+				actor=user,
+				action=PostActivity.Action.POST_UNDELETED,
+			)
 
 	output = PostDeleteStateOutputSerializer(
 		data={

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from teams.models import Team
 from tags.api import serialize_post_tags
-from .models import Post, PostVersion
+from .models import Post, PostActivity, PostVersion
 from .constants import ARTICLE_TYPE_TO_LABEL, ARTICLE_TYPE_VALUES, BOUNTY_REASON_OPTIONS, MAX_TAGS_PER_POST, MIN_TAGS_PER_POST
 
 
@@ -107,6 +107,49 @@ class PostVersionOutputSerializer(serializers.ModelSerializer):
             'reason',
             'created_at',
         ]
+
+
+class PostActivityOutputSerializer(serializers.ModelSerializer):
+    post = serializers.IntegerField(source='post_id', read_only=True)
+    comment = serializers.IntegerField(source='comment_id', allow_null=True, read_only=True)
+    answer = serializers.IntegerField(source='answer_id', allow_null=True, read_only=True)
+    post_version = serializers.IntegerField(source='post_version_id', allow_null=True, read_only=True)
+    actor = serializers.IntegerField(source='actor_id', allow_null=True, read_only=True)
+    actor_name = serializers.SerializerMethodField()
+    action_label = serializers.CharField(source='get_action_display', read_only=True)
+
+    class Meta:
+        model = PostActivity
+        fields = [
+            'id',
+            'post',
+            'comment',
+            'answer',
+            'post_version',
+            'actor',
+            'actor_name',
+            'action',
+            'action_label',
+            'created_at',
+        ]
+
+    def get_actor_name(self, obj):
+        if not obj.actor_id:
+            return 'system'
+        return obj.actor.name
+
+class PostActivityPaginationOutputSerializer(serializers.Serializer):
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    total_items = serializers.IntegerField()
+    total_pages = serializers.IntegerField()
+    has_next = serializers.BooleanField()
+    has_previous = serializers.BooleanField()
+
+
+class PostActivityListOutputSerializer(serializers.Serializer):
+    items = PostActivityOutputSerializer(many=True)
+    pagination = PostActivityPaginationOutputSerializer()
 
 
 class ApproveAnswerInputSerializer(serializers.Serializer):
