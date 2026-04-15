@@ -1,10 +1,16 @@
+from django.db import transaction
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
 from teams.permissions import ensure_team_membership
+
+from ..domain_events import answer_approval_changed, emit_post_event
 from ..models import Post, PostVersion
 from ..services import PostService
+
 from .serializers import (
 	ApproveAnswerInputSerializer,
 	ApproveAnswerOutputSerializer,
@@ -17,21 +23,8 @@ from .serializers import (
 	UpdateAnswerInputSerializer,
 	UpdateAnswerOutputSerializer,
 )
-from notifications.api import create_notification
-from notifications.constants import (
-	NOTIFICATION_REASON_APPROVED_ANSWER_ON_FOLLOWED_POST,
-	NOTIFICATION_REASON_YOUR_ANSWER_WAS_APPROVED,
-)
-from reputation.api import apply_reputation_change
-from reputation.constants import (
-	ANSWER_ACCEPT_GAIN,
-	ANSWER_UNACCEPT_LOSS,
-	REPUTATION_REASON_ACCEPT,
-	REPUTATION_REASON_UNACCEPT,
-)
 from .views_common import (
 	_first_serializer_error,
-	_notify_question_followers,
 )
 from .views_questions import (
 	search_global_titles,
@@ -318,20 +311,22 @@ def approve_answer(request, question_id):
 
 	answer_id = approve_input_serializer.validated_data.get('answer_id')
 	if answer_id is None:
+		previous_approved_answer_id = None
 		with transaction.atomic():
 			previous_approved_answer = question.approved_answer
+			if previous_approved_answer:
+				previous_approved_answer_id = previous_approved_answer.id
 			question.approved_answer = None
 			question.save(update_fields=['approved_answer', 'modified_at'])
 
-			if previous_approved_answer and previous_approved_answer.user_id != user.id:
-				apply_reputation_change(
-					user=previous_approved_answer.user,
-					team=question.team,
-					triggered_by=user,
-					post=previous_approved_answer,
-					points=ANSWER_UNACCEPT_LOSS,
-					reason=REPUTATION_REASON_UNACCEPT,
-				)
+		emit_post_event(
+			answer_approval_changed,
+			question_id=question.id,
+			actor_id=user.id,
+			previous_approved_answer_id=previous_approved_answer_id,
+			approved_answer_id=None,
+			already_approved=False,
+		)
 
 		output = ApproveAnswerOutputSerializer(
 			data={
@@ -355,40 +350,18 @@ def approve_answer(request, question_id):
 	with transaction.atomic():
 		previous_approved_answer = question.approved_answer
 		already_approved = previous_approved_answer and previous_approved_answer.id == answer.id
+		previous_approved_answer_id = previous_approved_answer.id if previous_approved_answer else None
 
 		question.approved_answer = answer
 		question.save(update_fields=['approved_answer', 'modified_at'])
 
-		if previous_approved_answer and not already_approved and previous_approved_answer.user_id != user.id:
-			apply_reputation_change(
-				user=previous_approved_answer.user,
-				team=question.team,
-				triggered_by=user,
-				post=previous_approved_answer,
-				points=ANSWER_UNACCEPT_LOSS,
-				reason=REPUTATION_REASON_UNACCEPT,
-			)
-
-		if not already_approved and answer.user_id != user.id:
-			apply_reputation_change(
-				user=answer.user,
-				team=question.team,
-				triggered_by=user,
-				post=answer,
-				points=ANSWER_ACCEPT_GAIN,
-				reason=REPUTATION_REASON_ACCEPT,
-			)
-
-	create_notification(
-		post=answer,
-		user=answer.user,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_YOUR_ANSWER_WAS_APPROVED,
-	)
-	_notify_question_followers(
-		question=question,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_APPROVED_ANSWER_ON_FOLLOWED_POST,
+	emit_post_event(
+		answer_approval_changed,
+		question_id=question.id,
+		actor_id=user.id,
+		previous_approved_answer_id=previous_approved_answer_id,
+		approved_answer_id=answer.id,
+		already_approved=bool(already_approved),
 	)
 
 	output = ApproveAnswerOutputSerializer(

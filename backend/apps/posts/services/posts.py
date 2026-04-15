@@ -2,42 +2,12 @@ from django.db import transaction
 from django.db.models import F
 from django.db.models.functions import Coalesce, Greatest
 
-from notifications.api import create_notification
-from notifications.constants import (
-    NOTIFICATION_REASON_ANSWER_EDITED,
-    NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
-    NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
-    NOTIFICATION_REASON_QUESTION_EDITED,
-)
 from tags.api import sync_post_tags, sync_user_tags_for_post
-from users.models import User
 
 from ..constants import POST_TYPE_ANSWER, POST_TYPE_QUESTION
-from ..models import Post, PostActivity, PostFollow
+from ..domain_events import answer_created, answer_edited, emit_post_event, post_edited
+from ..models import Post, PostActivity
 from .tracking import create_post_activity, create_post_version, resolve_activity_post_and_answer
-
-
-def _notify_question_followers(*, question, triggered_by, reason):
-    follower_ids = list(PostFollow.objects.filter(post=question).values_list('user_id', flat=True))
-    if not follower_ids:
-        return
-
-    users_by_id = {
-        item.id: item
-        for item in User.objects.filter(id__in=follower_ids)
-    }
-
-    for follower_id in follower_ids:
-        target_user = users_by_id.get(follower_id)
-        if not target_user:
-            continue
-
-        create_notification(
-            post=question,
-            user=target_user,
-            triggered_by=triggered_by,
-            reason=reason,
-        )
 
 
 class PostContentService:
@@ -89,12 +59,7 @@ class PostContentService:
             action=PostActivity.Action.POST_EDITED,
             post_version=version,
         )
-        create_notification(
-            post=question,
-            user=question.user,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_QUESTION_EDITED,
-        )
+        emit_post_event(post_edited, post_id=question.id, actor_id=actor.id)
         return question
 
     @staticmethod
@@ -145,12 +110,7 @@ class PostContentService:
             action=PostActivity.Action.POST_EDITED,
             post_version=version,
         )
-        create_notification(
-            post=article,
-            user=article.user,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_QUESTION_EDITED,
-        )
+        emit_post_event(post_edited, post_id=article.id, actor_id=actor.id)
         return article
 
     @staticmethod
@@ -185,16 +145,11 @@ class PostContentService:
         )
 
         Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
-        create_notification(
-            post=question,
-            user=question.user,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
-        )
-        _notify_question_followers(
-            question=question,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
+        emit_post_event(
+            answer_created,
+            question_id=question.id,
+            answer_id=answer.id,
+            actor_id=actor.id,
         )
         return answer
 
@@ -215,13 +170,7 @@ class PostContentService:
             action=PostActivity.Action.POST_EDITED,
             post_version=version,
         )
-
-        create_notification(
-            post=answer,
-            user=answer.user,
-            triggered_by=actor,
-            reason=NOTIFICATION_REASON_ANSWER_EDITED,
-        )
+        emit_post_event(answer_edited, answer_id=answer.id, actor_id=actor.id)
         return answer
 
     @staticmethod
