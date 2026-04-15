@@ -1,8 +1,18 @@
 from rest_framework import serializers
+from reputation.constants import BOUNTY_AMOUNT
+from teams.models import TeamUser
 from teams.models import Team
 from tags.api import serialize_post_tags
-from .models import Post, PostActivity, PostVersion
-from .constants import ARTICLE_TYPE_TO_LABEL, ARTICLE_TYPE_VALUES, BOUNTY_REASON_OPTIONS, MAX_TAGS_PER_POST, MIN_TAGS_PER_POST
+from ..models import Post, PostActivity, PostVersion
+from ..constants import (
+    ARTICLE_TYPE_TO_LABEL,
+    ARTICLE_TYPE_VALUES,
+    BOUNTY_MIN_REPUTATION_BUFFER,
+    BOUNTY_REASON_OPTIONS,
+    MAX_TAGS_PER_POST,
+    MIN_TAGS_PER_POST,
+    POST_TYPE_QUESTION,
+)
 
 
 class CreateQuestionSerializer(serializers.Serializer):
@@ -242,6 +252,46 @@ class QuestionCloseOutputSerializer(serializers.Serializer):
     duplicate_post_title = serializers.CharField(allow_null=True)
 
 
+class QuestionCloseInputSerializer(serializers.Serializer):
+    reason = serializers.CharField()
+    duplicate_post_id = serializers.IntegerField(required=False)
+
+    def validate(self, attrs):
+        question = self.context.get('question')
+
+        reason_value = str(attrs.get('reason', '')).strip().lower()
+        if reason_value in ('off_topic', 'offtopic'):
+            reason_value = 'off-topic'
+
+        if reason_value not in ('duplicate', 'off-topic'):
+            raise serializers.ValidationError({'reason': 'reason must be either duplicate or off-topic'})
+
+        attrs['reason'] = reason_value
+        attrs['duplicate_question'] = None
+
+        if reason_value == 'duplicate':
+            duplicate_post_id = attrs.get('duplicate_post_id')
+            if duplicate_post_id in (None, ''):
+                raise serializers.ValidationError({'duplicate_post_id': 'duplicate_post_id is required for duplicate close reason'})
+
+            if question and duplicate_post_id == question.id:
+                raise serializers.ValidationError({'duplicate_post_id': 'A question cannot be duplicate of itself'})
+
+            if question:
+                try:
+                    duplicate_question = Post.objects.get(
+                        id=duplicate_post_id,
+                        team=question.team,
+                        type=POST_TYPE_QUESTION,
+                        delete_flag=False,
+                    )
+                except Post.DoesNotExist as error:
+                    raise serializers.ValidationError({'duplicate_post_id': 'Duplicate reference question not found in this team'}) from error
+                attrs['duplicate_question'] = duplicate_question
+
+        return attrs
+
+
 class QuestionUpdateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255)
     body = serializers.CharField()
@@ -360,6 +410,31 @@ class OfferQuestionBountyInputSerializer(serializers.Serializer):
         choices=BOUNTY_REASON_OPTIONS
     )
 
+    def validate(self, attrs):
+        question = self.context.get('question')
+        request = self.context.get('request')
+
+        if question is None or request is None:
+            return attrs
+
+        if question.delete_flag:
+            raise serializers.ValidationError('Cannot offer bounty on a deleted question')
+
+        if question.closed_reason:
+            raise serializers.ValidationError('Cannot offer bounty on a closed question')
+
+        if (question.bounty_amount or 0) > 0:
+            raise serializers.ValidationError('This question already has an active bounty')
+
+        membership = TeamUser.objects.filter(team=question.team, user=request.user).first()
+        current_reputation = membership.reputation if membership and membership.reputation and membership.reputation > 0 else 1
+        if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
+            raise serializers.ValidationError(
+                f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to offer this bounty.'
+            )
+
+        return attrs
+
 
 class QuestionBountyStateOutputSerializer(serializers.Serializer):
     question_id = serializers.IntegerField()
@@ -369,6 +444,37 @@ class QuestionBountyStateOutputSerializer(serializers.Serializer):
 
 class AwardQuestionBountyInputSerializer(serializers.Serializer):
     answer_id = serializers.IntegerField()
+
+    def validate(self, attrs):
+        question = self.context.get('question')
+        request = self.context.get('request')
+
+        if question is None or request is None:
+            return attrs
+
+        if (question.bounty_amount or 0) <= 0:
+            raise serializers.ValidationError('No active bounty to award')
+
+        membership = TeamUser.objects.filter(team=question.team, user=request.user).first()
+        current_reputation = membership.reputation if membership and membership.reputation and membership.reputation > 0 else 1
+        if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
+            raise serializers.ValidationError(
+                f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to award this bounty.'
+            )
+
+        answer_id = attrs['answer_id']
+        try:
+            answer = Post.objects.select_related('user').get(
+                id=answer_id,
+                type=1,
+                parent_id=question.id,
+                delete_flag=False,
+            )
+        except Post.DoesNotExist as error:
+            raise serializers.ValidationError('Answer not found for this question') from error
+
+        attrs['answer'] = answer
+        return attrs
 
 
 class QuestionAwardBountyOutputSerializer(serializers.Serializer):

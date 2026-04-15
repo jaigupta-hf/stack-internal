@@ -8,12 +8,12 @@ from teams.permissions import ensure_team_membership
 
 from apps.collections.models import Collection
 
-from .models import Post
+from ..models import Post
 from .serializers import (
     GlobalTitleSearchItemOutputSerializer,
     QuestionSearchItemOutputSerializer,
 )
-from .constants import (
+from ..constants import (
     ARTICLE_TYPE_VALUES,
     GLOBAL_SEARCH_PER_TYPE_LIMIT,
     GLOBAL_SEARCH_TOTAL_LIMIT,

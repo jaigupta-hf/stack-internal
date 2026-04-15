@@ -4,9 +4,9 @@ from notifications.api import create_notification
 from notifications.models import Notification
 from notifications.constants import NOTIFICATION_REASON_MENTIONED_IN_QUESTION
 from reputation.constants import BOUNTY_AMOUNT
-from .constants import ARTICLE_TYPE_TO_LABEL, BOUNTY_REASON_OPTIONS
+from ..constants import ARTICLE_TYPE_TO_LABEL, BOUNTY_REASON_OPTIONS
 
-from .models import PostFollow
+from ..models import PostFollow
 
 
 # Helper to display name.
