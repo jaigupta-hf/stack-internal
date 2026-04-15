@@ -35,6 +35,21 @@ Authorization: Bearer <access_token>
 { "error": "human-readable message" }
 ```
 
+## Architecture Flow (Posts Example)
+
+The backend follows a layered pattern for post-related APIs:
+
+1. API layer (`apps/posts/api/*`) accepts HTTP requests, validates input with serializers, checks permissions, and returns response payloads.
+2. Service layer (`apps/posts/services/*`) executes core business logic and model updates inside transactions.
+3. Domain events (`apps/posts/domain_events.py`) are emitted by posts write flows using `emit_post_event(...)`.
+4. Receivers in other apps handle side effects independently:
+  - `apps/notifications/receivers.py` creates notification rows.
+  - `apps/reputation/receivers.py` applies reputation deltas.
+
+Notes:
+- Events are emitted with `transaction.on_commit` semantics to avoid side effects from rolled-back transactions.
+- Mention add/remove flows are explicit notification-domain actions and may still call notifications directly.
+
 ## Users API
 
 | Endpoint | Method | Auth | Purpose | Key Inputs |

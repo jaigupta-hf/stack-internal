@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,6 +29,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
+    'debug_toolbar',
 
     'users',
     'teams',
@@ -42,6 +44,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.gzip.GZipMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -105,7 +108,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://localhost:4173',
+    'http://127.0.0.1:4173',
 ]
+
+INTERNAL_IPS = ['127.0.0.1', 'localhost']
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -118,3 +125,17 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny',
     ],
 }
+
+
+if 'test' in sys.argv:
+    MIGRATION_MODULES = {
+        'users': None,
+        'teams': None,
+        'posts': None,
+        'tags': None,
+        'notifications': None,
+        'comments': None,
+        'reputation': None,
+        'collections': None,
+        'votes': None,
+    }

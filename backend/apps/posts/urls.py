@@ -1,8 +1,8 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .viewsets import ArticleViewSet, QuestionViewSet
-from .views import (
+from .api.viewsets import ArticleViewSet, QuestionViewSet
+from .api.views import (
     create_answer,
     update_answer,
     delete_answer,

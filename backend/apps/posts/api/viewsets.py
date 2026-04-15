@@ -1,8 +1,4 @@
-from datetime import timedelta
-
-from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, Q
-from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -10,43 +6,31 @@ from rest_framework.response import Response
 
 from apps.pagination import parse_pagination_params, paginate_queryset
 from comments.models import Comment
-from notifications.api import create_notification
 from notifications.constants import (
-    NOTIFICATION_REASON_QUESTION_CLOSED,
-    NOTIFICATION_REASON_QUESTION_DELETED,
     NOTIFICATION_REASON_MENTIONED_IN_QUESTION,
-    NOTIFICATION_REASON_QUESTION_EDITED,
 )
 from notifications.models import Notification
 from reputation.models import Bounty
-from reputation.api import apply_reputation_change
-from reputation.constants import (
-    BOUNTY_AMOUNT,
-    REPUTATION_REASON_BOUNTY_EARNED,
-    REPUTATION_REASON_BOUNTY_OFFERED,
-)
 
 from teams.models import TeamUser
 
 from teams.permissions import IsTeamMember
 from votes.models import Vote
 
-from tags.api import serialize_post_tags, sync_post_tags, sync_user_tags_for_post, tag_prefetch
-from .activity import create_post_activity
-from .versioning import create_post_version
+from tags.api import serialize_post_tags, tag_prefetch
+from .permissions import IsPostAuthor, IsPostAuthorOrTeamAdmin
+from ..services import PostService
 
-from .constants import (
+from ..constants import (
     ARTICLE_TYPE_TO_LABEL,
     ARTICLE_TYPE_VALUES,
-    BOUNTY_DURATION_DAYS,
-    BOUNTY_MIN_REPUTATION_BUFFER,
     DEFAULT_ARTICLE_LIST_PAGE_SIZE,
     MAX_ARTICLE_LIST_PAGE_SIZE,
 )
-from .models import Bookmark, Post
-from .models import PostActivity
-from .models import PostFollow
-from .models import PostVersion
+from ..models import Bookmark, Post
+from ..models import PostActivity
+from ..models import PostFollow
+from ..models import PostVersion
 from .serializers import (
     ArticleDetailModelSerializer,
     ArticleListModelSerializer,
@@ -63,6 +47,7 @@ from .serializers import (
     PostVersionOutputSerializer,
     QuestionBountyStateOutputSerializer,
     QuestionAwardBountyOutputSerializer,
+    QuestionCloseInputSerializer,
     QuestionCloseOutputSerializer,
     QuestionDetailModelSerializer,
     QuestionFollowStateOutputSerializer,
@@ -173,30 +158,14 @@ class ArticleViewSet(TeamScopedCrudViewSet):
 
     def perform_create(self, serializer):
         validated = serializer.validated_data
-        with transaction.atomic():
-            article = Post.objects.create(
-                type=validated['type'],
-                title=validated['title'],
-                body=validated['body'],
-                parent=None,
-                team=validated['team'],
-                user=self.request.user,
-                approved_answer=None,
-                answer_count=None,
-            )
-            sync_post_tags(article, validated['tags'])
-            sync_user_tags_for_post(self.request.user, article)
-            version = create_post_version(
-                post=article,
-                reason='created',
-                prefetched_attr='article_tag_posts',
-            )
-            create_post_activity(
-                post=article,
-                actor=self.request.user,
-                action=PostActivity.Action.POST_CREATED,
-                post_version=version,
-            )
+        article = PostService.create_article(
+            user=self.request.user,
+            team=validated['team'],
+            post_type=validated['type'],
+            title=validated['title'],
+            body=validated['body'],
+            tags=validated['tags'],
+        )
         return article
 
     def create(self, request, *args, **kwargs):
@@ -256,15 +225,18 @@ class ArticleViewSet(TeamScopedCrudViewSet):
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    def get_permissions(self):
+        permission_classes = list(self.permission_classes)
+        if self.action == 'partial_update':
+            permission_classes.append(IsPostAuthor)
+        return [permission() for permission in permission_classes]
+
     def partial_update(self, request, pk=None, *args, **kwargs):
         article, article_error = self._get_article_for_detail_or_response(pk)
         if article_error:
             return article_error
 
         self.check_object_permissions(request, article)
-
-        if article.user_id != request.user.id:
-            return Response({'error': 'Only the author can edit this article'}, status=status.HTTP_403_FORBIDDEN)
 
         update_serializer = ArticleUpdateSerializer(data=request.data)
         if not update_serializer.is_valid():
@@ -275,55 +247,61 @@ class ArticleViewSet(TeamScopedCrudViewSet):
 
         validated = update_serializer.validated_data
 
-        with transaction.atomic():
-            article.title = validated['title']
-            article.body = validated['body']
-            article.type = validated['type']
-            article.save()
-            sync_post_tags(article, validated['tags'])
-            version = create_post_version(
-                post=article,
-                reason='edited',
-                prefetched_attr='article_tag_posts',
-            )
-            create_post_activity(
-                post=article,
-                actor=request.user,
-                action=PostActivity.Action.POST_EDITED,
-                post_version=version,
-            )
+        PostService.update_article(
+            article=article,
+            actor=request.user,
+            post_type=validated['type'],
+            title=validated['title'],
+            body=validated['body'],
+            tags=validated['tags'],
+        )
 
         article = (
             Post.objects.select_related('user')
             .prefetch_related(tag_prefetch('article_tag_posts'))
-            .get(id=pk, type__in=ARTICLE_TYPE_VALUES, delete_flag=False)
+            .get(id=article.id)
         )
 
-        response_payload = {
-            'id': article.id,
-            'type': article.type,
-            'type_label': ARTICLE_TYPE_TO_LABEL.get(article.type, 'Article'),
-            'title': article.title,
-            'body': article.body,
-            'tags': serialize_post_tags(article, 'article_tag_posts'),
-            'user': article.user_id,
-            'user_name': article.user.name,
-            'created_at': article.created_at,
-            'modified_at': article.modified_at,
-            'views_count': article.views_count,
-        }
-
-        response_serializer = ArticleUpdateOutputSerializer(data=response_payload)
-        response_serializer.is_valid(raise_exception=True)
-
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
+        output = ArticleUpdateOutputSerializer(
+            data={
+                'id': article.id,
+                'type': article.type,
+                'type_label': ARTICLE_TYPE_TO_LABEL.get(article.type, 'Article'),
+                'title': article.title,
+                'body': article.body,
+                'tags': serialize_post_tags(article, 'article_tag_posts'),
+                'user': article.user_id,
+                'user_name': article.user.name,
+                'created_at': article.created_at,
+                'modified_at': article.modified_at,
+                'views_count': article.views_count,
+            }
+        )
+        output.is_valid(raise_exception=True)
+        return Response(output.data, status=status.HTTP_200_OK)
 
 
 class QuestionViewSet(TeamScopedCrudViewSet):
-    """Router-backed CRUD endpoints for questions."""
-
     queryset = Post.objects.filter(type=0).annotate(followers_count=Count('follows'))
     serializer_class = CreateQuestionSerializer
+
+    def get_permissions(self):
+        permission_classes = list(self.permission_classes)
+
+        if self.action in {
+            'partial_update',
+            'offer_bounty',
+            'award_bounty',
+            'remove_mention',
+            'mark_deleted',
+            'undelete',
+        }:
+            permission_classes.append(IsPostAuthor)
+
+        if self.action in {'close', 'reopen'}:
+            permission_classes.append(IsPostAuthorOrTeamAdmin)
+
+        return [permission() for permission in permission_classes]
 
     def list(self, request, *args, **kwargs):
         team_id, team_error = self._get_required_team_id(request)
@@ -376,29 +354,13 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
     def perform_create(self, serializer):
         validated = serializer.validated_data
-        with transaction.atomic():
-            question = Post.objects.create(
-                type=0,
-                title=validated['title'],
-                body=validated['body'],
-                parent=None,
-                team=validated['team'],
-                user=self.request.user,
-                approved_answer=None,
-            )
-            sync_post_tags(question, validated.get('tags', []))
-            sync_user_tags_for_post(self.request.user, question)
-            version = create_post_version(
-                post=question,
-                reason='created',
-                prefetched_attr='question_tag_posts',
-            )
-            create_post_activity(
-                post=question,
-                actor=self.request.user,
-                action=PostActivity.Action.POST_CREATED,
-                post_version=version,
-            )
+        question = PostService.create_question(
+            user=self.request.user,
+            team=validated['team'],
+            title=validated['title'],
+            body=validated['body'],
+            tags=validated.get('tags', []),
+        )
         return question
 
     def create(self, request, *args, **kwargs):
@@ -500,37 +462,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         return Response(output.data, status=status.HTTP_200_OK)
 
     def _cleanup_expired_bounties(self, question_ids):
-        if not question_ids:
-            return set()
-
-        expired_bounty_rows = list(
-            Bounty.objects.filter(
-                post_id__in=question_ids,
-                status=Bounty.STATUS_OFFERED,
-                end_time__isnull=False,
-                end_time__lte=timezone.now(),
-            ).values_list('id', 'post_id')
-        )
-        if not expired_bounty_rows:
-            return set()
-
-        expired_bounty_ids = [bounty_id for bounty_id, _ in expired_bounty_rows]
-        expired_question_ids = {question_id for _, question_id in expired_bounty_rows}
-
-        with transaction.atomic():
-            Bounty.objects.filter(id__in=expired_bounty_ids).delete()
-            Post.objects.filter(id__in=expired_question_ids).update(bounty_amount=0)
-            PostActivity.objects.bulk_create(
-                [
-                    PostActivity(
-                        post_id=question_id,
-                        action=PostActivity.Action.BOUNTY_ENDED,
-                    )
-                    for question_id in sorted(expired_question_ids)
-                ]
-            )
-
-        return expired_question_ids
+        return PostService.cleanup_expired_bounties(question_ids)
 
     def _build_question_detail_response(self, request, question):
         expired_question_ids = self._cleanup_expired_bounties([question.id])
@@ -639,9 +571,6 @@ class QuestionViewSet(TeamScopedCrudViewSet):
 
         self.check_object_permissions(request, question)
 
-        if question.user_id != request.user.id:
-            return Response({'error': 'Only the question author can edit this question'}, status=status.HTTP_403_FORBIDDEN)
-
         update_serializer = QuestionUpdateSerializer(data=request.data)
         if not update_serializer.is_valid():
             return Response(
@@ -652,31 +581,12 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         validated = update_serializer.validated_data
         tags = validated.get('tags', None)
 
-        with transaction.atomic():
-            question.title = validated['title']
-            question.body = validated['body']
-            question.save()
-
-            if tags is not None:
-                sync_post_tags(question, tags)
-
-            version = create_post_version(
-                post=question,
-                reason='edited',
-                prefetched_attr='question_tag_posts',
-            )
-            create_post_activity(
-                post=question,
-                actor=request.user,
-                action=PostActivity.Action.POST_EDITED,
-                post_version=version,
-            )
-
-        create_notification(
-            post=question,
-            user=question.user,
-            triggered_by=request.user,
-            reason=NOTIFICATION_REASON_QUESTION_EDITED,
+        PostService.update_question(
+            question=question,
+            actor=request.user,
+            title=validated['title'],
+            body=validated['body'],
+            tags=tags,
         )
 
         question = self._question_detail_queryset(request.user).get(id=pk, type=0)
@@ -807,19 +717,10 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         if question.id in expired_question_ids:
             question.bounty_amount = 0
 
-        if question.user_id != request.user.id:
-            return Response({'error': 'Only the question author can offer bounty'}, status=status.HTTP_403_FORBIDDEN)
-
-        if question.delete_flag:
-            return Response({'error': 'Cannot offer bounty on a deleted question'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if question.closed_reason:
-            return Response({'error': 'Cannot offer bounty on a closed question'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if (question.bounty_amount or 0) > 0:
-            return Response({'error': 'This question already has an active bounty'}, status=status.HTTP_400_BAD_REQUEST)
-
-        bounty_input_serializer = OfferQuestionBountyInputSerializer(data=request.data)
+        bounty_input_serializer = OfferQuestionBountyInputSerializer(
+            data=request.data,
+            context={'request': request, 'question': question},
+        )
         if not bounty_input_serializer.is_valid():
             return Response(
                 {'error': _first_serializer_error(bounty_input_serializer.errors)},
@@ -827,34 +728,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
             )
         reason = bounty_input_serializer.validated_data['reason']
 
-        membership = TeamUser.objects.filter(team=question.team, user=request.user).first()
-        current_reputation = membership.reputation if membership and membership.reputation and membership.reputation > 0 else 1
-        if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
-            return Response(
-                {'error': f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to offer this bounty.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            start_time = timezone.now()
-            end_time = start_time + timedelta(days=BOUNTY_DURATION_DAYS)
-            bounty = Bounty.objects.create(
-                post=question,
-                offered_by=request.user,
-                awarded_answer=None,
-                amount=BOUNTY_AMOUNT,
-                status=Bounty.STATUS_OFFERED,
-                reason=reason,
-                start_time=start_time,
-                end_time=end_time,
-            )
-            Post.objects.filter(id=question.id).update(bounty_amount=BOUNTY_AMOUNT)
-            question.refresh_from_db(fields=['bounty_amount'])
-            create_post_activity(
-                post=question,
-                actor=request.user,
-                action=PostActivity.Action.BOUNTY_STARTED,
-            )
+        bounty = PostService.offer_bounty(question=question, actor=request.user, reason=reason)
 
         output = QuestionBountyStateOutputSerializer(
             data={
@@ -874,73 +748,21 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         if question.id in expired_question_ids:
             question.bounty_amount = 0
 
-        if question.user_id != request.user.id:
-            return Response({'error': 'Only the question author can award bounty'}, status=status.HTTP_403_FORBIDDEN)
-
-        if (question.bounty_amount or 0) <= 0:
-            return Response({'error': 'No active bounty to award'}, status=status.HTTP_400_BAD_REQUEST)
-
-        bounty_award_input_serializer = AwardQuestionBountyInputSerializer(data=request.data)
+        bounty_award_input_serializer = AwardQuestionBountyInputSerializer(
+            data=request.data,
+            context={'request': request, 'question': question},
+        )
         if not bounty_award_input_serializer.is_valid():
             return Response(
                 {'error': _first_serializer_error(bounty_award_input_serializer.errors)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        answer_id = bounty_award_input_serializer.validated_data['answer_id']
+        answer = bounty_award_input_serializer.validated_data['answer']
 
         try:
-            answer = Post.objects.select_related('user').get(id=answer_id, type=1, parent_id=question.id, delete_flag=False)
-        except Post.DoesNotExist:
-            return Response({'error': 'Answer not found for this question'}, status=status.HTTP_404_NOT_FOUND)
-
-        membership = TeamUser.objects.filter(team=question.team, user=request.user).first()
-        current_reputation = membership.reputation if membership and membership.reputation and membership.reputation > 0 else 1
-        if current_reputation < (BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER):
-            return Response(
-                {'error': f'You need at least {BOUNTY_AMOUNT + BOUNTY_MIN_REPUTATION_BUFFER} reputation to award this bounty.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            bounty = (
-                Bounty.objects.select_for_update()
-                .filter(post=question, status=Bounty.STATUS_OFFERED)
-                .order_by('-start_time')
-                .first()
-            )
-            if not bounty:
-                return Response({'error': 'No offered bounty found for this question'}, status=status.HTTP_400_BAD_REQUEST)
-
-            bounty.status = Bounty.STATUS_EARNED
-            bounty.awarded_answer = answer
-            bounty.end_time = timezone.now()
-            bounty.save(update_fields=['status', 'awarded_answer', 'end_time'])
-
-            Post.objects.filter(id=question.id).update(bounty_amount=0)
-            question.refresh_from_db(fields=['bounty_amount'])
-
-            apply_reputation_change(
-                user=question.user,
-                team=question.team,
-                triggered_by=request.user,
-                post=question,
-                points=-BOUNTY_AMOUNT,
-                reason=REPUTATION_REASON_BOUNTY_OFFERED,
-            )
-            apply_reputation_change(
-                user=answer.user,
-                team=question.team,
-                triggered_by=request.user,
-                post=answer,
-                points=BOUNTY_AMOUNT,
-                reason=REPUTATION_REASON_BOUNTY_EARNED,
-            )
-            create_post_activity(
-                post=question,
-                answer=answer,
-                actor=request.user,
-                action=PostActivity.Action.BOUNTY_ENDED,
-            )
+            bounty = PostService.award_bounty(question=question, actor=request.user, answer=answer)
+        except ValueError as error:
+            return Response({'error': str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         output = QuestionAwardBountyOutputSerializer(
             data={
@@ -963,56 +785,24 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         if question.closed_reason:
             return Response({'error': 'Question is already closed.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        reason_value = str(request.data.get('reason', '')).strip().lower()
-        if reason_value in ('off_topic', 'offtopic'):
-            reason_value = 'off-topic'
-
-        if reason_value not in ('duplicate', 'off-topic'):
-            return Response({'error': 'reason must be either duplicate or off-topic'}, status=status.HTTP_400_BAD_REQUEST)
-
-        duplicate_question = None
-        duplicate_post_id_value = None
-        duplicate_post_title_value = None
-        if reason_value == 'duplicate':
-            duplicate_post_id = request.data.get('duplicate_post_id')
-            if not duplicate_post_id:
-                return Response({'error': 'duplicate_post_id is required for duplicate close reason'}, status=status.HTTP_400_BAD_REQUEST)
-
-            try:
-                duplicate_post_id = int(duplicate_post_id)
-            except (TypeError, ValueError):
-                return Response({'error': 'duplicate_post_id must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
-
-            if duplicate_post_id == question.id:
-                return Response({'error': 'A question cannot be duplicate of itself'}, status=status.HTTP_400_BAD_REQUEST)
-
-            try:
-                duplicate_question = Post.objects.get(id=duplicate_post_id, team=question.team, type=0, delete_flag=False)
-            except Post.DoesNotExist:
-                return Response({'error': 'Duplicate reference question not found in this team'}, status=status.HTTP_404_NOT_FOUND)
-
-            duplicate_post_id_value = duplicate_question.id
-            duplicate_post_title_value = duplicate_question.title
-
-        closed_at = timezone.now()
-        with transaction.atomic():
-            Post.objects.filter(id=question.id).update(
-                closed_reason=reason_value,
-                closed_by=request.user,
-                closed_at=closed_at,
-                parent=duplicate_question if reason_value == 'duplicate' else None,
+        close_input_serializer = QuestionCloseInputSerializer(data=request.data, context={'question': question})
+        if not close_input_serializer.is_valid():
+            return Response(
+                {'error': _first_serializer_error(close_input_serializer.errors)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            create_post_activity(
-                post=question,
-                actor=request.user,
-                action=PostActivity.Action.POST_CLOSED,
-            )
-            create_notification(
-                post=question,
-                user=question.user,
-                triggered_by=request.user,
-                reason=NOTIFICATION_REASON_QUESTION_CLOSED,
-            )
+
+        reason_value = close_input_serializer.validated_data['reason']
+        duplicate_question = close_input_serializer.validated_data.get('duplicate_question')
+        duplicate_post_id_value = duplicate_question.id if duplicate_question else None
+        duplicate_post_title_value = duplicate_question.title if duplicate_question else None
+
+        closed_at = PostService.close_question(
+            question=question,
+            actor=request.user,
+            reason=reason_value,
+            duplicate_question=duplicate_question,
+        )
 
         return self._question_close_response(
             question=question,
@@ -1028,9 +818,6 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     @action(detail=True, methods=['post'], url_path='mentions/remove')
     def remove_mention(self, request, pk=None):
         question = self.get_object()
-
-        if question.user_id != request.user.id:
-            return Response({'error': 'Only the question author can remove mentions'}, status=status.HTTP_403_FORBIDDEN)
 
         remove_input_serializer = RemoveQuestionMentionInputSerializer(data=request.data)
         if not remove_input_serializer.is_valid():
@@ -1065,18 +852,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         if not question.closed_reason:
             return Response({'error': 'Question is not closed.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        with transaction.atomic():
-            Post.objects.filter(id=question.id).update(
-                closed_reason='',
-                closed_by=None,
-                closed_at=None,
-                parent=None,
-            )
-            create_post_activity(
-                post=question,
-                actor=request.user,
-                action=PostActivity.Action.POST_REOPENED,
-            )
+        PostService.reopen_question(question=question, actor=request.user)
 
         return self._question_close_response(
             question=question,
@@ -1093,23 +869,7 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     def mark_deleted(self, request, pk=None):
         question = self.get_object()
 
-        if question.user_id != request.user.id:
-            return Response({'error': 'Only the question author can delete this question'}, status=status.HTTP_403_FORBIDDEN)
-
-        if not question.delete_flag:
-            with transaction.atomic():
-                Post.objects.filter(id=question.id).update(delete_flag=True)
-                create_post_activity(
-                    post=question,
-                    actor=request.user,
-                    action=PostActivity.Action.POST_DELETED,
-                )
-                create_notification(
-                    post=question,
-                    user=question.user,
-                    triggered_by=request.user,
-                    reason=NOTIFICATION_REASON_QUESTION_DELETED,
-                )
+        PostService.mark_question_deleted(question=question, actor=request.user)
 
         return self._question_delete_state_response(question=question, is_deleted=True)
 
@@ -1117,16 +877,6 @@ class QuestionViewSet(TeamScopedCrudViewSet):
     def undelete(self, request, pk=None):
         question = self.get_object()
 
-        if question.user_id != request.user.id:
-            return Response({'error': 'Only the question author can undelete this question'}, status=status.HTTP_403_FORBIDDEN)
-
-        if question.delete_flag:
-            with transaction.atomic():
-                Post.objects.filter(id=question.id).update(delete_flag=False)
-                create_post_activity(
-                    post=question,
-                    actor=request.user,
-                    action=PostActivity.Action.POST_UNDELETED,
-                )
+        PostService.undelete_question(question=question, actor=request.user)
 
         return self._question_delete_state_response(question=question, is_deleted=False)

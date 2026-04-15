@@ -8,11 +8,13 @@ It provides:
 - Read/unread state updates.
 - Bulk mark-as-read for a team.
 - Shared API helper for creating notifications from other apps.
+- Signal receivers for post-domain events.
 
 ## Main Files
 - `models.py`: `Notification`.
 - `views.py`: list and read-state endpoints.
 - `api.py`: `create_notification` helper.
+- `receivers.py`: listeners for post-domain events.
 - `serializers.py`: input/output schemas.
 - `urls.py`: routes under `/api/notifications/*`.
 
@@ -41,7 +43,7 @@ Behavior:
 
 ## Cross-App Usage
 Used by:
-- posts (answers, edits, approvals, mention flows, question state changes)
+- posts (events consumed via signals for answers, edits, approvals, bounty/close/delete side effects; direct helper use for mention flows)
 - comments (comment and reply events)
 
 ## Important Notes

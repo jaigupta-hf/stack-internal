@@ -7,6 +7,7 @@ It provides:
 - Team-scoped reputation history endpoint.
 - Core function to apply reputation deltas safely.
 - Bounty domain model used by post interaction flows.
+- Signal receivers for post-domain reputation events.
 
 Ownership note:
 - Expired bounty cleanup is triggered lazily from posts endpoints (question list/detail and bounty actions), not by a scheduled worker in this app.
@@ -15,6 +16,7 @@ Ownership note:
 - `models.py`: `ReputationHistory`, `Bounty`.
 - `views.py`: `ReputationHistoryListView` class-based endpoint.
 - `api.py`: `apply_reputation_change` service function.
+- `receivers.py`: listeners for post-domain events (bounty awarded, answer approval changes).
 - `serializers.py`: query/output schema.
 - `urls.py`: route under `/api/reputation/*`.
 
@@ -47,7 +49,7 @@ In `api.py`, `ALLOWED_REASONS` currently includes:
 - `bounty offered`, `bounty earned`
 
 ## Cross-App Dependencies
-- Used by posts and votes flows for all reputation side effects.
+- Used by votes flows directly and by posts flows via domain-event receivers.
 - Depends on `teams` membership state for reputation storage (`TeamUser.reputation`).
 
 ## Developer Guidance
