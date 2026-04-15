@@ -10,6 +10,7 @@ import useQuestionAnswersDomain from './useQuestionAnswersDomain';
 import useQuestionBountyDomain from './useQuestionBountyDomain';
 import useQuestionMentionsDomain from './useQuestionMentionsDomain';
 import useQuestionModerationDomain from './useQuestionModerationDomain';
+import { useAuth } from '../../context/AuthContext';
 import {
   BOUNTY_REASONS,
   formatQuestionTime,
@@ -20,6 +21,8 @@ import {
 const DEFAULT_QUESTION_LIST_PAGE_SIZE = 20;
 
 function useQuestionTabController({ team }) {
+  const { user } = useAuth();
+  const currentUserId = Number(user?.id || 0);
   const [showAskModal, setShowAskModal] = useState(false);
   const [questionTitle, setQuestionTitle] = useState('');
   const [questionBody, setQuestionBody] = useState('');
@@ -34,6 +37,11 @@ function useQuestionTabController({ team }) {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [listError, setListError] = useState('');
   const [selectedQuestion, setSelectedQuestion] = useState(null);
+  const [questionActivities, setQuestionActivities] = useState([]);
+  const [questionActivityPagination, setQuestionActivityPagination] = useState(null);
+  const [loadingQuestionActivities, setLoadingQuestionActivities] = useState(false);
+  const [questionActivityError, setQuestionActivityError] = useState('');
+  const [showQuestionHistory, setShowQuestionHistory] = useState(false);
   const [isEditingQuestion, setIsEditingQuestion] = useState(false);
   const [isEditingTagsOnly, setIsEditingTagsOnly] = useState(false);
   const [editQuestionTitle, setEditQuestionTitle] = useState('');
@@ -298,6 +306,7 @@ function useQuestionTabController({ team }) {
     handleApproveAnswer,
     sortedAnswers,
   } = useQuestionAnswersDomain({
+    currentUserId,
     selectedQuestion,
     setSelectedQuestion,
     setQuestions,
@@ -328,6 +337,7 @@ function useQuestionTabController({ team }) {
     handleDeleteQuestion,
     handleUndeleteQuestion,
   } = useQuestionModerationDomain({
+    currentUserId,
     teamId: team?.id,
     selectedQuestion,
     setSelectedQuestion,
@@ -356,6 +366,11 @@ function useQuestionTabController({ team }) {
   });
 
   const resetQuestionDetailState = useCallback(() => {
+    setQuestionActivities([]);
+    setQuestionActivityPagination(null);
+    setLoadingQuestionActivities(false);
+    setQuestionActivityError('');
+    setShowQuestionHistory(false);
     setIsEditingQuestion(false);
     setIsEditingTagsOnly(false);
     setEditQuestionError('');
@@ -387,6 +402,11 @@ function useQuestionTabController({ team }) {
     setOfferingBounty(false);
     setAwardingBountyAnswerId(null);
   }, [
+    setQuestionActivities,
+    setQuestionActivityPagination,
+    setLoadingQuestionActivities,
+    setQuestionActivityError,
+    setShowQuestionHistory,
     resetCommentSectionState,
     setShowAnswerSection,
     setAnswerError,
@@ -660,6 +680,76 @@ function useQuestionTabController({ team }) {
       setListError(err.response?.data?.error || 'Failed to open question.');
     }
   }, [resetQuestionDetailState, setQuestionIdInUrl]);
+
+  const loadQuestionActivities = useCallback(async (questionId, options = {}) => {
+    if (!questionId) {
+      setQuestionActivities([]);
+      setQuestionActivityPagination(null);
+      return;
+    }
+
+    setLoadingQuestionActivities(true);
+    setQuestionActivityError('');
+
+    try {
+      const payload = await postService.listQuestionActivities(questionId, {
+        page: options.page || 1,
+        pageSize: options.pageSize || 50,
+      });
+      setQuestionActivities(Array.isArray(payload?.items) ? payload.items : []);
+      setQuestionActivityPagination(payload?.pagination || null);
+    } catch (err) {
+      setQuestionActivities([]);
+      setQuestionActivityPagination(null);
+      setQuestionActivityError(err.response?.data?.error || 'Failed to load question history.');
+    } finally {
+      setLoadingQuestionActivities(false);
+    }
+  }, []);
+
+  const handleOpenQuestionHistoryPage = useCallback(async () => {
+    if (!selectedQuestion) {
+      return;
+    }
+
+    setShowQuestionHistory(true);
+    await loadQuestionActivities(selectedQuestion.id, { page: 1, pageSize: 50 });
+  }, [loadQuestionActivities, selectedQuestion]);
+
+  const handleCloseQuestionHistoryPage = useCallback(() => {
+    setShowQuestionHistory(false);
+  }, []);
+
+  const handleOpenHistoryReference = useCallback((referenceType, referenceId) => {
+    if (!referenceId) {
+      return;
+    }
+
+    const targetPrefix = referenceType === 'comment' ? 'comment' : 'answer';
+    const targetElementId = `${targetPrefix}-${referenceId}`;
+
+    setShowQuestionHistory(false);
+    setCollapsedCommentSections({});
+
+    const scrollToTarget = () => {
+      const targetNode = document.getElementById(targetElementId);
+      if (!targetNode) {
+        return false;
+      }
+
+      targetNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return true;
+    };
+
+    requestAnimationFrame(() => {
+      if (scrollToTarget()) {
+        return;
+      }
+
+      setTimeout(scrollToTarget, 180);
+      setTimeout(scrollToTarget, 450);
+    });
+  }, [setCollapsedCommentSections]);
 
   const handleOpenQuestion = (questionId) => {
     openQuestionDetail(questionId, true);
@@ -949,6 +1039,16 @@ function useQuestionTabController({ team }) {
     setListError,
     selectedQuestion,
     setSelectedQuestion,
+    questionActivities,
+    setQuestionActivities,
+    questionActivityPagination,
+    setQuestionActivityPagination,
+    loadingQuestionActivities,
+    setLoadingQuestionActivities,
+    questionActivityError,
+    setQuestionActivityError,
+    showQuestionHistory,
+    setShowQuestionHistory,
     isEditingQuestion,
     setIsEditingQuestion,
     isEditingTagsOnly,
@@ -1119,6 +1219,10 @@ function useQuestionTabController({ team }) {
     handleOpenQuestion,
     handleListQuestionUpvote,
     handleToggleQuestionBookmark,
+    loadQuestionActivities,
+    handleOpenQuestionHistoryPage,
+    handleCloseQuestionHistoryPage,
+    handleOpenHistoryReference,
     handleOpenCloseModal,
     handleCloseQuestion,
     handleReopenQuestion,

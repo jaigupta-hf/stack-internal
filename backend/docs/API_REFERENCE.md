@@ -6,8 +6,8 @@ Related: frontend integration mapping and pagination usage is documented in `doc
 
 ## Base URL
 
-- Local: `http://localhost:3000`
-- API root: `http://localhost:3000/api`
+- Local: `http://localhost:8000`
+- API root: `http://localhost:8000/api`
 
 ## Authentication
 
@@ -67,9 +67,9 @@ Authorization: Bearer <access_token>
 | `/api/posts/questions/` | `POST` | Required | Create question | Body: `team_id`, `title`, `body`, `tags` (1-5) |
 | `/api/posts/articles/` | `POST` | Required | Create article | Body: `team_id`, `title`, `body`, `type` (`20/21/22/23`), `tags` (1-5) |
 | `/api/posts/questions/{question_id}/answers/` | `POST` | Required | Create answer | Path: `question_id`, Body: `body` |
-| `/api/posts/answers/{answer_id}/` | `PATCH` | Required | Update answer body | Path: `answer_id`, Body: `body` |
-| `/api/posts/answers/{answer_id}/delete/` | `POST` | Required | Soft-delete answer | Path: `answer_id` |
-| `/api/posts/answers/{answer_id}/undelete/` | `POST` | Required | Restore deleted answer | Path: `answer_id` |
+| `/api/posts/answers/{answer_id}/` | `PATCH` | Required | Update own answer body (author-only) | Path: `answer_id`, Body: `body` |
+| `/api/posts/answers/{answer_id}/delete/` | `POST` | Required | Soft-delete own answer (author-only) | Path: `answer_id` |
+| `/api/posts/answers/{answer_id}/undelete/` | `POST` | Required | Restore own deleted answer (author-only) | Path: `answer_id` |
 | `/api/posts/questions/{question_id}/approve-answer/` | `PATCH` | Required | Approve or clear approved answer | Path: `question_id`, Body: `answer_id` (nullable) |
 
 ### Read and Search
@@ -81,9 +81,9 @@ Authorization: Bearer <access_token>
 | `/api/posts/search/global/` | `GET` | Required | Global title search (questions/articles/collections) | Query: `team_id`, `q` |
 | `/api/posts/articles/list/` | `GET` | Required | List articles for team | Query: `team_id` |
 | `/api/posts/articles/{article_id}/` | `GET` | Required | Article detail | Path: `article_id` |
-| `/api/posts/articles/{article_id}/` | `PATCH` | Required | Edit article | Path: `article_id`, Body: `title`, `body`, `type`, `tags` |
+| `/api/posts/articles/{article_id}/` | `PATCH` | Required | Edit own article (author-only) | Path: `article_id`, Body: `title`, `body`, `type`, `tags` |
 | `/api/posts/questions/{question_id}/` | `GET` | Required | Question detail (question + answers + comments + mentions + bounty) | Path: `question_id` |
-| `/api/posts/questions/{question_id}/` | `PATCH` | Required | Edit question | Path: `question_id`, Body: `title`, `body`, `tags?` |
+| `/api/posts/questions/{question_id}/` | `PATCH` | Required | Edit own question (author-only) | Path: `question_id`, Body: `title`, `body`, `tags?` |
 
 ### Question Interactions
 
@@ -93,12 +93,16 @@ Authorization: Bearer <access_token>
 | `/api/posts/questions/{question_id}/unfollow/` | `POST` | Required | Unfollow question | Path: `question_id` |
 | `/api/posts/questions/{question_id}/mentions/` | `POST` | Required | Add mentions | Path: `question_id`, Body: `user_ids` |
 | `/api/posts/questions/{question_id}/mentions/remove/` | `POST` | Required | Remove one mention | Path: `question_id`, Body: `user_id` |
-| `/api/posts/questions/{question_id}/bounty/offer/` | `POST` | Required | Offer bounty | Path: `question_id`, Body: `reason` |
-| `/api/posts/questions/{question_id}/bounty/award/` | `POST` | Required | Award bounty | Path: `question_id`, Body: `answer_id` |
+| `/api/posts/questions/{question_id}/bounty/offer/` | `POST` | Required | Offer bounty on own question (author-only) | Path: `question_id`, Body: `reason` |
+| `/api/posts/questions/{question_id}/bounty/award/` | `POST` | Required | Award bounty on own question (author-only) | Path: `question_id`, Body: `answer_id` |
 | `/api/posts/questions/{question_id}/close/` | `POST` | Required | Close question | Path: `question_id`, Body: `reason` (`duplicate` or `off-topic`), `duplicate_post_id` (required for duplicate) |
 | `/api/posts/questions/{question_id}/reopen/` | `POST` | Required | Reopen question | Path: `question_id` |
-| `/api/posts/questions/{question_id}/delete/` | `POST` | Required | Soft-delete question | Path: `question_id` |
-| `/api/posts/questions/{question_id}/undelete/` | `POST` | Required | Restore question | Path: `question_id` |
+| `/api/posts/questions/{question_id}/delete/` | `POST` | Required | Soft-delete own question (author-only) | Path: `question_id` |
+| `/api/posts/questions/{question_id}/undelete/` | `POST` | Required | Restore own question (author-only) | Path: `question_id` |
+
+Additional bounty behavior:
+- Expired offered bounties are removed lazily on question list/detail reads and before bounty offer/award processing.
+- Cleanup deletes expired `Bounty` rows and resets `Post.bounty_amount` to `0`.
 
 ### Bookmarks and Follows
 

@@ -81,7 +81,7 @@ function CommentSection({
     const replies = repliesByParentId[comment.id] || [];
 
     return (
-      <li key={comment.id} className="relative border-l-2 border-cyan-300/40 pl-2">
+      <li id={`comment-${comment.id}`} key={comment.id} className="relative border-l-2 border-cyan-300/40 pl-2">
         <div className="min-w-0">
           {isEditing ? (
             <div className="flex items-center gap-1.5">

@@ -50,6 +50,13 @@ export const postService = {
     return response.data;
   },
 
+  async listQuestionActivities(questionId, options = {}) {
+    const response = await api.get(`/posts/questions/${questionId}/activities/`, {
+      params: withPaginationParams({}, options),
+    });
+    return response.data;
+  },
+
   async searchQuestions(teamId, query) {
     const response = await api.get('/posts/questions/search/', {
       params: {

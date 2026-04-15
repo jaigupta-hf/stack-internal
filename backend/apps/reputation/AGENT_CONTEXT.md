@@ -8,6 +8,9 @@ It provides:
 - Core function to apply reputation deltas safely.
 - Bounty domain model used by post interaction flows.
 
+Ownership note:
+- Expired bounty cleanup is triggered lazily from posts endpoints (question list/detail and bounty actions), not by a scheduled worker in this app.
+
 ## Main Files
 - `models.py`: `ReputationHistory`, `Bounty`.
 - `views.py`: `ReputationHistoryListView` class-based endpoint.
@@ -51,3 +54,4 @@ In `api.py`, `ALLOWED_REASONS` currently includes:
 - Add new reputation reason strings to `ALLOWED_REASONS` before emitting them.
 - Keep reputation floor behavior consistent across all call sites.
 - For new reputation-affecting features, route through `apply_reputation_change`.
+- Keep bounty-expiry read-time cleanup behavior aligned with posts app logic to avoid stale `bounty_amount` state.

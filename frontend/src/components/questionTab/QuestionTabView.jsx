@@ -1,5 +1,6 @@
 import QuestionListPanel from './QuestionListPanel';
 import QuestionDetailPanel from './QuestionDetailPanel';
+import QuestionHistoryPage from './QuestionHistoryPage';
 import QuestionModals from './QuestionModals';
 
 function QuestionTabView({ embeddedMode = false, onOpenUserProfile, controller }) {
@@ -17,7 +18,11 @@ function QuestionTabView({ embeddedMode = false, onOpenUserProfile, controller }
         onOpenUserProfile={onOpenUserProfile}
       />
 
-      <QuestionDetailPanel controller={controller} onOpenUserProfile={onOpenUserProfile} />
+      {controller.showQuestionHistory ? (
+        <QuestionHistoryPage controller={controller} onOpenUserProfile={onOpenUserProfile} />
+      ) : (
+        <QuestionDetailPanel controller={controller} onOpenUserProfile={onOpenUserProfile} />
+      )}
     </>
   );
 }

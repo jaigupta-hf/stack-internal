@@ -3,11 +3,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Exists, F, OuterRef
 from django.db.models import IntegerField, Value
 from django.db.models.functions import Coalesce, Greatest
 from teams.permissions import ensure_team_membership
-from .models import Tag, TagUser
+from .models import Tag, TagPost, TagUser
 from .serializers import (
 	TagPreferenceOutputSerializer,
 	TagSearchItemOutputSerializer,
@@ -39,21 +39,30 @@ def _ensure_team_membership_or_response(*, team_id, user):
 
 # Base queryset for tags used by active posts in a team.
 def _team_tags_queryset(team_id):
+	team_active_posts_for_tag = TagPost.objects.filter(
+		tag_id=OuterRef('pk'),
+		post__team_id=team_id,
+		post__type__in=TEAM_TAG_POST_TYPES,
+		post__delete_flag=False,
+	)
 	return Tag.objects.filter(
-		tag_posts__post__team_id=team_id,
-		tag_posts__post__type__in=TEAM_TAG_POST_TYPES,
-		tag_posts__post__delete_flag=False,
-	).distinct()
+		Exists(team_active_posts_for_tag),
+	)
 
 
 # Base queryset for a user's tag preferences scoped to active team tags.
 def _team_tag_users_queryset(*, team_id, user):
+	team_active_posts_for_user_tag = TagPost.objects.filter(
+		tag_id=OuterRef('tag_id'),
+		post__team_id=team_id,
+		post__type__in=TEAM_TAG_POST_TYPES,
+		post__delete_flag=False,
+	)
 	return TagUser.objects.filter(
 		user=user,
-		tag__tag_posts__post__team_id=team_id,
-		tag__tag_posts__post__type__in=TEAM_TAG_POST_TYPES,
-		tag__tag_posts__post__delete_flag=False,
-	).select_related('tag').distinct()
+	).filter(
+		Exists(team_active_posts_for_user_tag),
+	).select_related('tag')
 
 
 # Search tags by name fragment and return top suggestions ranked by popularity and usage.
@@ -106,11 +115,7 @@ def list_team_tags(request):
 
 	tags = (
 		_team_tags_queryset(team_id)
-		.annotate(
-			question_count_safe=Coalesce('question_count', Value(0), output_field=IntegerField()),
-			article_count_safe=Coalesce('article_count', Value(0), output_field=IntegerField()),
-		)
-		.annotate(total_post_count=F('question_count_safe') + F('article_count_safe'))
+		.annotate(total_post_count=F('question_count') + F('article_count'))
 		.order_by('-total_post_count', '-watch_count', 'name')
 	)
 

@@ -6,7 +6,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from teams.permissions import ensure_team_membership
-from .models import Post
+from .activity import create_post_activity, resolve_activity_post_and_answer
+from .models import Post, PostActivity, PostVersion
 from .serializers import (
 	ApproveAnswerInputSerializer,
 	ApproveAnswerOutputSerializer,
@@ -15,6 +16,7 @@ from .serializers import (
 	CreateQuestionOutputSerializer,
 	CreateQuestionSerializer,
 	PostDeleteStateOutputSerializer,
+	PostVersionOutputSerializer,
 	UpdateAnswerInputSerializer,
 	UpdateAnswerOutputSerializer,
 )
@@ -38,6 +40,7 @@ from .views_common import (
 	_first_serializer_error,
 	_notify_question_followers,
 )
+from .versioning import create_post_version
 from .views_questions import (
 	search_global_titles,
 	search_questions,
@@ -82,6 +85,17 @@ def create_question(request):
 
 		sync_post_tags(post, tag_names)
 		sync_user_tags_for_post(user, post)
+		version = create_post_version(
+			post=post,
+			reason='created',
+			prefetched_attr='question_tag_posts',
+		)
+		create_post_activity(
+			post=post,
+			actor=user,
+			action=PostActivity.Action.POST_CREATED,
+			post_version=version,
+		)
 
 	output = CreateQuestionOutputSerializer(
 		data={
@@ -128,35 +142,47 @@ def create_answer(request, question_id):
 
 	body = serializer.validated_data['body']
 
-	answer = Post.objects.create(
-		type=1,
-		title='',
-		body=body,
-		parent=question,
-		team=question.team,
-		user=user,
-		views_count=0,
-		vote_count=0,
-		approved_answer=None,
-		closed_reason='',
-		closed_at=None,
-		closed_by=None,
-		delete_flag=False,
-		bounty_amount=0,
-	)
+	with transaction.atomic():
+		answer = Post.objects.create(
+			type=1,
+			title='',
+			body=body,
+			parent=question,
+			team=question.team,
+			user=user,
+			views_count=0,
+			vote_count=0,
+			approved_answer=None,
+			closed_reason='',
+			closed_at=None,
+			closed_by=None,
+			delete_flag=False,
+			bounty_amount=0,
+		)
+		version = create_post_version(
+			post=answer,
+			reason='created',
+		)
+		create_post_activity(
+			post=question,
+			answer=answer,
+			actor=user,
+			action=PostActivity.Action.ANSWERED,
+			post_version=version,
+		)
 
-	Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
-	create_notification(
-		post=question,
-		user=question.user,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
-	)
-	_notify_question_followers(
-		question=question,
-		triggered_by=user,
-		reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
-	)
+		Post.objects.filter(id=question.id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
+		create_notification(
+			post=question,
+			user=question.user,
+			triggered_by=user,
+			reason=NOTIFICATION_REASON_ANSWER_POSTED_ON_YOUR_QUESTION,
+		)
+		_notify_question_followers(
+			question=question,
+			triggered_by=user,
+			reason=NOTIFICATION_REASON_NEW_ANSWER_ON_FOLLOWED_POST,
+		)
 
 	output = CreateAnswerOutputSerializer(
 		data={
@@ -189,7 +215,7 @@ def update_answer(request, answer_id):
 	user = request.user
 
 	try:
-		answer = Post.objects.select_related('user', 'edited_by').get(id=answer_id, type=1, delete_flag=False)
+		answer = Post.objects.select_related('user').get(id=answer_id, type=1, delete_flag=False)
 	except Post.DoesNotExist:
 		return Response({'error': 'Answer not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -197,14 +223,29 @@ def update_answer(request, answer_id):
 	if membership_error:
 		return membership_error
 
+	if answer.user_id != user.id:
+		return Response({'error': 'Only the answer author can edit this answer'}, status=status.HTTP_403_FORBIDDEN)
+
 	update_serializer = UpdateAnswerInputSerializer(data=request.data)
 	if not update_serializer.is_valid():
 		return Response(update_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 	body = update_serializer.validated_data['body']
 
-	answer.body = body
-	answer.edited_by = user
-	answer.save()
+	with transaction.atomic():
+		answer.body = body
+		answer.save()
+		version = create_post_version(
+			post=answer,
+			reason='edited',
+		)
+		activity_post, activity_answer = resolve_activity_post_and_answer(answer)
+		create_post_activity(
+			post=activity_post,
+			answer=activity_answer,
+			actor=user,
+			action=PostActivity.Action.POST_EDITED,
+			post_version=version,
+		)
 	create_notification(
 		post=answer,
 		user=answer.user,
@@ -220,13 +261,54 @@ def update_answer(request, answer_id):
 			'modified_at': answer.modified_at,
 			'user': answer.user_id,
 			'user_name': answer.user.name,
-			'edited_by': answer.edited_by_id,
-			'edited_by_username': answer.edited_by.name if answer.edited_by else None,
 			'vote_count': answer.vote_count,
 		}
 	)
 	output.is_valid(raise_exception=True)
 	return Response(output.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_post_versions(request, post_id):
+	try:
+		post = Post.objects.select_related('team').get(id=post_id)
+	except Post.DoesNotExist:
+		return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+
+	membership_error = ensure_team_membership(team=post.team, user=request.user)
+	if membership_error:
+		return membership_error
+
+	versions = post.versions.order_by('version')
+	serializer = PostVersionOutputSerializer(versions, many=True)
+	return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def retrieve_post_version(request, post_id, version):
+	try:
+		post = Post.objects.select_related('team').get(id=post_id)
+	except Post.DoesNotExist:
+		return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+
+	membership_error = ensure_team_membership(team=post.team, user=request.user)
+	if membership_error:
+		return membership_error
+
+	try:
+		version_number = int(version)
+	except (TypeError, ValueError):
+		return Response({'error': 'version must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+	try:
+		version_obj = post.versions.get(version=version_number)
+	except PostVersion.DoesNotExist:
+		return Response({'error': 'Version not found'}, status=status.HTTP_404_NOT_FOUND)
+
+	serializer = PostVersionOutputSerializer(version_obj)
+	return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 # Handle delete answer.
@@ -248,12 +330,21 @@ def delete_answer(request, answer_id):
 		return Response({'error': 'Only the answer author can delete this answer'}, status=status.HTTP_403_FORBIDDEN)
 
 	if not answer.delete_flag:
-		Post.objects.filter(id=answer.id).update(delete_flag=True)
-		if answer.parent_id:
-			Post.objects.filter(id=answer.parent_id).update(
-				answer_count=Greatest(Coalesce(F('answer_count'), 0) - 1, 0)
+		with transaction.atomic():
+			Post.objects.filter(id=answer.id).update(delete_flag=True)
+			if answer.parent_id:
+				Post.objects.filter(id=answer.parent_id).update(
+					answer_count=Greatest(Coalesce(F('answer_count'), 0) - 1, 0)
+				)
+				Post.objects.filter(id=answer.parent_id, approved_answer_id=answer.id).update(approved_answer=None)
+
+			activity_post, activity_answer = resolve_activity_post_and_answer(answer)
+			create_post_activity(
+				post=activity_post,
+				answer=activity_answer,
+				actor=user,
+				action=PostActivity.Action.POST_DELETED,
 			)
-			Post.objects.filter(id=answer.parent_id, approved_answer_id=answer.id).update(approved_answer=None)
 
 	output = PostDeleteStateOutputSerializer(
 		data={
@@ -285,9 +376,18 @@ def undelete_answer(request, answer_id):
 		return Response({'error': 'Only the answer author can undelete this answer'}, status=status.HTTP_403_FORBIDDEN)
 
 	if answer.delete_flag:
-		Post.objects.filter(id=answer.id).update(delete_flag=False)
-		if answer.parent_id:
-			Post.objects.filter(id=answer.parent_id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
+		with transaction.atomic():
+			Post.objects.filter(id=answer.id).update(delete_flag=False)
+			if answer.parent_id:
+				Post.objects.filter(id=answer.parent_id).update(answer_count=Coalesce(F('answer_count'), 0) + 1)
+
+			activity_post, activity_answer = resolve_activity_post_and_answer(answer)
+			create_post_activity(
+				post=activity_post,
+				answer=activity_answer,
+				actor=user,
+				action=PostActivity.Action.POST_UNDELETED,
+			)
 
 	output = PostDeleteStateOutputSerializer(
 		data={
