@@ -110,8 +110,8 @@ Notes:
 | `/api/posts/questions/{question_id}/mentions/remove/` | `POST` | Required | Remove one mention | Path: `question_id`, Body: `user_id` |
 | `/api/posts/questions/{question_id}/bounty/offer/` | `POST` | Required | Offer bounty on own question (author-only) | Path: `question_id`, Body: `reason` |
 | `/api/posts/questions/{question_id}/bounty/award/` | `POST` | Required | Award bounty on own question (author-only) | Path: `question_id`, Body: `answer_id` |
-| `/api/posts/questions/{question_id}/close/` | `POST` | Required | Close question | Path: `question_id`, Body: `reason` (`duplicate` or `off-topic`), `duplicate_post_id` (required for duplicate) |
-| `/api/posts/questions/{question_id}/reopen/` | `POST` | Required | Reopen question | Path: `question_id` |
+| `/api/posts/questions/{question_id}/close/` | `POST` | Required | Close question (team member) | Path: `question_id`, Body: `reason` (`duplicate` or `off-topic`), `duplicate_post_id` (required for duplicate) |
+| `/api/posts/questions/{question_id}/reopen/` | `POST` | Required | Reopen question (author or team admin) | Path: `question_id` |
 | `/api/posts/questions/{question_id}/delete/` | `POST` | Required | Soft-delete own question (author-only) | Path: `question_id` |
 | `/api/posts/questions/{question_id}/undelete/` | `POST` | Required | Restore own question (author-only) | Path: `question_id` |
 
@@ -179,6 +179,10 @@ Additional bounty behavior:
 |---|---|---|---|---|
 | `/api/votes/` | `POST` | Required | Submit vote on post/comment | Body: exactly one of `post_id` or `comment_id`, and `vote` (`-1` or `1`) |
 | `/api/votes/remove/` | `POST` | Required | Remove vote from post/comment | Body: exactly one of `post_id` or `comment_id` |
+
+Vote side-effects:
+- Vote count updates run inside the vote transaction.
+- Reputation effects are emitted as vote-domain events and applied by reputation receivers after commit.
 
 ## Non-API Route
 

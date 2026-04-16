@@ -15,6 +15,8 @@ Current enforcement highlights:
 - Answer edit/delete/undelete is author-only.
 - Article edit is author-only.
 - Question bounty offer/award and mention removal are author-only.
+- Question close is allowed to any authenticated team member.
+- Question reopen is restricted to question author or team admin.
 
 ## Main Files
 - `models.py`: `Post`, `Bookmark`, `PostFollow`, `PostActivity`, `PostVersion`.

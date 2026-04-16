@@ -21,10 +21,11 @@ This document captures the verified API contract between frontend service method
 | `teamService.listTeamUsers(teamId, opts)` | `GET /api/teams/{team_id}/users/` | Same as above | `items[]` |
 | `reputationService.listHistory(teamId, userId, {page,pageSize})` | `GET /api/reputation/history/` | Query: `team_id`, optional `user_id`, `page`, `page_size` | `{ user_id, groups, pagination }` |
 | `postService.listArticles(teamId, {page,pageSize})` | `GET /api/posts/articles/list/` | Query: `team_id`, optional `page`, `page_size` | `items[]` |
-| `postService.listBookmarks(teamId, userId, {page,pageSize})` | `GET /api/posts/bookmarks/list/` | Query: `team_id`, optional `user_id`, `page`, `page_size` | `items[]` |
-| `postService.listFollowedPosts(teamId, userId, {page,pageSize})` | `GET /api/posts/follows/list/` | Query: `team_id`, optional `user_id`, `page`, `page_size` | `items[]` |
+| `postService.listBookmarks(teamId, userId, {page,pageSize})` | `GET /api/posts/bookmarks/list/` | Query: `team_id`, optional `user_id`, `page`, `page_size` | `items[]` (service normalizes paginated backend payload) |
+| `postService.listFollowedPosts(teamId, userId, {page,pageSize})` | `GET /api/posts/follows/list/` | Query: `team_id`, optional `user_id`, `page`, `page_size` | `items[]` (service normalizes paginated backend payload) |
 
 ## Notes
 
-- Some backend endpoints apply pagination server-side but currently return arrays instead of `{ items, pagination }` payloads (for example: articles, bookmarks, follows). Frontend supports passing pagination params to these endpoints already.
+- `articles/list` currently returns an array payload.
+- `bookmarks/list` and `follows/list` return paginated payloads from backend; `postService.listBookmarks(...)` and `postService.listFollowedPosts(...)` normalize them to arrays for existing UI consumers.
 - If UI-level pagination controls are introduced, prefer `*Page` methods wherever response includes pagination metadata.

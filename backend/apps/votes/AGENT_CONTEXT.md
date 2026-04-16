@@ -1,7 +1,7 @@
 # Votes App Context
 
 ## Purpose
-This app handles voting operations for posts and comments and triggers reputation side effects for post votes.
+This app handles voting operations for posts and comments and emits vote-domain events for post-vote reputation side effects.
 
 It provides:
 - Submit vote (`+1` or `-1`).
@@ -33,20 +33,22 @@ Base path: `/api/votes/`
   - Resolves target entity and team.
   - Validates exactly-one target rule.
   - Prevents voting on answer when parent question is deleted.
-- `_apply_post_vote_reputation(...)`
-  - Applies reputation deltas for post votes only (question/answer).
-  - Handles transitions for upvote/downvote and reversals.
+- `_emit_post_vote_reputation_event(...)`
+  - Emits a post-vote transition event for question/answer votes only.
+  - Defers reputation side effects to receivers after transaction commit.
+- `emit_vote_event(...)` in `domain_events.py`
+  - Uses `transaction.on_commit(...)` so receivers run only after successful writes.
 
 ## Important Behaviors
 - Membership in target team is required before voting.
 - Votes are processed in transactions.
 - Vote counts are updated incrementally on `Post` or `Comment`.
-- Reputation changes are delegated to `reputation.api.apply_reputation_change`.
+- Reputation changes are decoupled from this app and handled by reputation receivers.
 
 ## Cross-App Dependencies
 - `posts` and `comments` for vote targets.
 - `teams` for access checks.
-- `reputation` for point side effects.
+- `reputation` consumes vote events and applies point side effects.
 
 ## Developer Guidance
 - Keep target resolution logic centralized in `_resolve_target`.

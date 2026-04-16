@@ -7,7 +7,7 @@ It provides:
 - Team-scoped reputation history endpoint.
 - Core function to apply reputation deltas safely.
 - Bounty domain model used by post interaction flows.
-- Signal receivers for post-domain reputation events.
+- Signal receivers for post-domain and vote-domain reputation events.
 
 Ownership note:
 - Expired bounty cleanup is triggered lazily from posts endpoints (question list/detail and bounty actions), not by a scheduled worker in this app.
@@ -16,7 +16,7 @@ Ownership note:
 - `models.py`: `ReputationHistory`, `Bounty`.
 - `views.py`: `ReputationHistoryListView` class-based endpoint.
 - `api.py`: `apply_reputation_change` service function.
-- `receivers.py`: listeners for post-domain events (bounty awarded, answer approval changes).
+- `receivers.py`: listeners for post-domain events (bounty awarded, answer approval changes) and vote-domain transitions.
 - `serializers.py`: query/output schema.
 - `urls.py`: route under `/api/reputation/*`.
 
@@ -35,13 +35,13 @@ Base path: `/api/reputation/`
 ### `apply_reputation_change(user, team, triggered_by, post, points, reason)`
 Behavior:
 - Ignores zero-point operations.
-- Ignores unsupported reasons (guarded by `ALLOWED_REASONS`).
+- Ignores unsupported reasons (guarded by `REPUTATION_REASON_VALUES`).
 - Resolves team membership and updates `TeamUser.reputation`.
 - Enforces minimum reputation floor of 1.
 - Writes `ReputationHistory` only when effective points are non-zero.
 
 ## Allowed Reason Codes
-In `api.py`, `ALLOWED_REASONS` currently includes:
+In `constants.py`, `REPUTATION_REASON_VALUES` currently includes:
 - `upvote`, `unupvote`
 - `downvote`, `undownvote`
 - `accept`, `unaccept`
@@ -49,11 +49,11 @@ In `api.py`, `ALLOWED_REASONS` currently includes:
 - `bounty offered`, `bounty earned`
 
 ## Cross-App Dependencies
-- Used by votes flows directly and by posts flows via domain-event receivers.
+- Used by posts and votes flows via domain-event receivers.
 - Depends on `teams` membership state for reputation storage (`TeamUser.reputation`).
 
 ## Developer Guidance
-- Add new reputation reason strings to `ALLOWED_REASONS` before emitting them.
+- Add new reputation reason strings to `REPUTATION_REASON_VALUES` before emitting them.
 - Keep reputation floor behavior consistent across all call sites.
 - For new reputation-affecting features, route through `apply_reputation_change`.
 - Keep bounty-expiry read-time cleanup behavior aligned with posts app logic to avoid stale `bounty_amount` state.
