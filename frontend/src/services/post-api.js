@@ -57,6 +57,11 @@ export const postService = {
     return response.data;
   },
 
+  async listPostVersions(postId) {
+    const response = await api.get(`/posts/${postId}/versions/`);
+    return asList(response.data);
+  },
+
   async searchQuestions(teamId, query) {
     const response = await api.get('/posts/questions/search/', {
       params: {
