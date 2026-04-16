@@ -35,6 +35,9 @@ def get_post_version_tags_snapshot(post, prefetched_attr=None):
 
 
 def create_post_version(*, post, reason, prefetched_attr=None, tags_snapshot=None):
+    if post.type == POST_TYPE_ANSWER:
+        return None
+
     locked_post = Post.objects.select_for_update().get(id=post.id)
     latest_version = (
         PostVersion.objects.filter(post=locked_post).aggregate(max_version=Max('version')).get('max_version')

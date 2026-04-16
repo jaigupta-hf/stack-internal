@@ -295,7 +295,7 @@ class RouterEndpointTests(APITestCase):
 		self.assertEqual(len(versions_response.data), 2)
 		self.assertEqual(versions_response.data[0]['version'], 1)
 
-	def test_answer_versions_are_created_on_create_and_edit(self):
+	def test_answer_versions_are_not_created_on_create_and_edit(self):
 		question = Post.objects.create(
 			type=POST_TYPE_QUESTION,
 			title='Question for answer versions',
@@ -313,8 +313,7 @@ class RouterEndpointTests(APITestCase):
 		)
 		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
 		answer = Post.objects.get(id=create_response.data['id'])
-		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 1)
-		self.assertEqual(PostVersion.objects.get(post=answer, version=1).body, 'Answer v1')
+		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 0)
 
 		update_response = self.client.patch(
 			f'/api/posts/answers/{answer.id}/',
@@ -322,8 +321,7 @@ class RouterEndpointTests(APITestCase):
 			format='json',
 		)
 		self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 2)
-		self.assertEqual(PostVersion.objects.get(post=answer, version=2).body, 'Answer v2')
+		self.assertEqual(PostVersion.objects.filter(post=answer).count(), 0)
 
 	def test_question_activity_timeline_records_requested_events(self):
 		TeamUser.objects.filter(team=self.team, user=self.user).update(reputation=200)
