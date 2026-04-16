@@ -8,22 +8,9 @@ from rest_framework.response import Response
 
 from comments.models import Comment
 from posts.models import Post
+from posts.constants import POST_TYPE_ANSWER, POST_TYPE_QUESTION
 from teams.permissions import IsTeamMember
-from reputation.api import apply_reputation_change
-from reputation.constants import (
-    DOWNVOTE_RECEIVER_LOSS,
-    DOWNVOTE_RECEIVER_REFUND,
-    DOWNVOTE_VOTER_COST,
-    DOWNVOTE_VOTER_REFUND,
-    REPUTATION_REASON_DOWNVOTE,
-    REPUTATION_REASON_DOWNVOTED,
-    REPUTATION_REASON_UNDOWNVOTE,
-    REPUTATION_REASON_UNDOWNVOTED,
-    REPUTATION_REASON_UNUPVOTE,
-    REPUTATION_REASON_UPVOTE,
-    UPVOTE_RECEIVER_GAIN,
-    UPVOTE_RECEIVER_LOSS,
-)
+from .domain_events import emit_vote_event, post_vote_transitioned
 
 from .models import Vote
 from .serializers import SubmitVoteInputSerializer, VoteOutputSerializer, VoteTargetInputSerializer
@@ -88,67 +75,22 @@ def _vote_output_response(*, post, comment, vote, vote_count):
     return Response(output.data, status=status.HTTP_200_OK)
 
 
-# Apply reputation deltas for post votes when transitioning between upvote/downvote/neutral states.
-def _apply_post_vote_reputation(*, post, team, voter, previous_vote_value, current_vote_value):
-    if post.type not in (0, 1):
+# Schedule post-vote side effects for after commit so external systems observe only committed state.
+def _emit_post_vote_reputation_event(*, post, team, voter, previous_vote_value, current_vote_value):
+    if post.type not in (POST_TYPE_QUESTION, POST_TYPE_ANSWER):
         return
 
     if post.user_id == voter.id:
         return
 
-    if previous_vote_value == 1 and current_vote_value != 1:
-        apply_reputation_change(
-            user=post.user,
-            team=team,
-            triggered_by=voter,
-            post=post,
-            points=UPVOTE_RECEIVER_LOSS,
-            reason=REPUTATION_REASON_UNUPVOTE,
-        )
-    if previous_vote_value != 1 and current_vote_value == 1:
-        apply_reputation_change(
-            user=post.user,
-            team=team,
-            triggered_by=voter,
-            post=post,
-            points=UPVOTE_RECEIVER_GAIN,
-            reason=REPUTATION_REASON_UPVOTE,
-        )
-
-    if previous_vote_value == -1 and current_vote_value != -1:
-        apply_reputation_change(
-            user=post.user,
-            team=team,
-            triggered_by=voter,
-            post=post,
-            points=DOWNVOTE_RECEIVER_REFUND,
-            reason=REPUTATION_REASON_UNDOWNVOTE,
-        )
-        apply_reputation_change(
-            user=voter,
-            team=team,
-            triggered_by=voter,
-            post=post,
-            points=DOWNVOTE_VOTER_REFUND,
-            reason=REPUTATION_REASON_UNDOWNVOTED,
-        )
-    if previous_vote_value != -1 and current_vote_value == -1:
-        apply_reputation_change(
-            user=post.user,
-            team=team,
-            triggered_by=voter,
-            post=post,
-            points=DOWNVOTE_RECEIVER_LOSS,
-            reason=REPUTATION_REASON_DOWNVOTE,
-        )
-        apply_reputation_change(
-            user=voter,
-            team=team,
-            triggered_by=voter,
-            post=post,
-            points=DOWNVOTE_VOTER_COST,
-            reason=REPUTATION_REASON_DOWNVOTED,
-        )
+    emit_vote_event(
+        post_vote_transitioned,
+        post_id=post.id,
+        team_id=team.id,
+        voter_id=voter.id,
+        previous_vote_value=previous_vote_value,
+        current_vote_value=current_vote_value,
+    )
 
 
 class VoteViewSet(viewsets.GenericViewSet):
@@ -216,7 +158,7 @@ class VoteViewSet(viewsets.GenericViewSet):
             )
 
             if comment is None:
-                _apply_post_vote_reputation(
+                _emit_post_vote_reputation_event(
                     post=post,
                     team=target_team,
                     voter=user,
@@ -270,7 +212,7 @@ class VoteViewSet(viewsets.GenericViewSet):
             )
 
             if comment is None:
-                _apply_post_vote_reputation(
+                _emit_post_vote_reputation_event(
                     post=post,
                     team=target_team,
                     voter=user,

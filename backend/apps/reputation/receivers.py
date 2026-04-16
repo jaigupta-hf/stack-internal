@@ -1,17 +1,31 @@
 from django.dispatch import receiver
 
 from posts.domain_events import answer_approval_changed, bounty_awarded
+from posts.constants import POST_TYPE_ANSWER, POST_TYPE_QUESTION
 from posts.models import Post
 from users.models import User
+from votes.domain_events import post_vote_transitioned
 
 from .api import apply_reputation_change
 from .constants import (
     ANSWER_ACCEPT_GAIN,
     ANSWER_UNACCEPT_LOSS,
+    DOWNVOTE_RECEIVER_LOSS,
+    DOWNVOTE_RECEIVER_REFUND,
+    DOWNVOTE_VOTER_COST,
+    DOWNVOTE_VOTER_REFUND,
     REPUTATION_REASON_ACCEPT,
     REPUTATION_REASON_BOUNTY_EARNED,
     REPUTATION_REASON_BOUNTY_OFFERED,
+    REPUTATION_REASON_DOWNVOTE,
+    REPUTATION_REASON_DOWNVOTED,
+    REPUTATION_REASON_UNDOWNVOTE,
+    REPUTATION_REASON_UNDOWNVOTED,
+    REPUTATION_REASON_UNUPVOTE,
+    REPUTATION_REASON_UPVOTE,
     REPUTATION_REASON_UNACCEPT,
+    UPVOTE_RECEIVER_GAIN,
+    UPVOTE_RECEIVER_LOSS,
 )
 
 
@@ -19,6 +33,86 @@ def _safe_get_user(user_id):
     if not user_id:
         return None
     return User.objects.filter(id=user_id).first()
+
+
+@receiver(post_vote_transitioned)
+def handle_post_vote_transition(
+    sender,
+    *,
+    post_id,
+    team_id,
+    voter_id,
+    previous_vote_value,
+    current_vote_value,
+    **kwargs,
+):
+    post = Post.objects.select_related('team', 'user').filter(id=post_id).first()
+    voter = _safe_get_user(voter_id)
+    if not post or not voter:
+        return
+
+    if post.team_id != team_id:
+        return
+
+    if post.type not in (POST_TYPE_QUESTION, POST_TYPE_ANSWER):
+        return
+
+    if post.user_id == voter.id:
+        return
+
+    if previous_vote_value == 1 and current_vote_value != 1:
+        apply_reputation_change(
+            user=post.user,
+            team=post.team,
+            triggered_by=voter,
+            post=post,
+            points=UPVOTE_RECEIVER_LOSS,
+            reason=REPUTATION_REASON_UNUPVOTE,
+        )
+    if previous_vote_value != 1 and current_vote_value == 1:
+        apply_reputation_change(
+            user=post.user,
+            team=post.team,
+            triggered_by=voter,
+            post=post,
+            points=UPVOTE_RECEIVER_GAIN,
+            reason=REPUTATION_REASON_UPVOTE,
+        )
+
+    if previous_vote_value == -1 and current_vote_value != -1:
+        apply_reputation_change(
+            user=post.user,
+            team=post.team,
+            triggered_by=voter,
+            post=post,
+            points=DOWNVOTE_RECEIVER_REFUND,
+            reason=REPUTATION_REASON_UNDOWNVOTE,
+        )
+        apply_reputation_change(
+            user=voter,
+            team=post.team,
+            triggered_by=voter,
+            post=post,
+            points=DOWNVOTE_VOTER_REFUND,
+            reason=REPUTATION_REASON_UNDOWNVOTED,
+        )
+    if previous_vote_value != -1 and current_vote_value == -1:
+        apply_reputation_change(
+            user=post.user,
+            team=post.team,
+            triggered_by=voter,
+            post=post,
+            points=DOWNVOTE_RECEIVER_LOSS,
+            reason=REPUTATION_REASON_DOWNVOTE,
+        )
+        apply_reputation_change(
+            user=voter,
+            team=post.team,
+            triggered_by=voter,
+            post=post,
+            points=DOWNVOTE_VOTER_COST,
+            reason=REPUTATION_REASON_DOWNVOTED,
+        )
 
 
 @receiver(bounty_awarded)
