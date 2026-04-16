@@ -296,9 +296,6 @@ class QuestionViewSet(TeamScopedCrudViewSet):
         }:
             permission_classes.append(IsPostAuthor)
 
-        if self.action in {'close', 'reopen'}:
-            permission_classes.append(IsPostAuthorOrTeamAdmin)
-
         return [permission() for permission in permission_classes]
 
     def list(self, request, *args, **kwargs):

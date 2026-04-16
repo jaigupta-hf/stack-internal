@@ -146,6 +146,29 @@ class RouterEndpointTests(APITestCase):
 		delete_response = self.client.post(f'/api/posts/questions/{question.id}/delete/')
 		self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
 
+	def test_non_author_team_member_can_close_question(self):
+		question = Post.objects.create(
+			type=POST_TYPE_QUESTION,
+			title='Closable question',
+			body='Question body',
+			parent=None,
+			team=self.team,
+			user=self.user,
+			approved_answer=None,
+		)
+
+		self.client.force_authenticate(user=self.other_user)
+
+		close_response = self.client.post(
+			f'/api/posts/questions/{question.id}/close/',
+			{'reason': 'off-topic'},
+			format='json',
+		)
+		self.assertEqual(close_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(close_response.data['id'], question.id)
+		self.assertTrue(close_response.data['is_closed'])
+		self.assertEqual(close_response.data['closed_by'], self.other_user.id)
+
 	def test_question_detail_deletes_expired_offered_bounty(self):
 		question = Post.objects.create(
 			type=POST_TYPE_QUESTION,
